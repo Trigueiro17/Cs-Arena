@@ -13513,7 +13513,7 @@ var SteamService = class _SteamService {
           steamLevel = Number(levelJson?.response?.player_level) || 1;
         }
         const gamesRes = await fetch(
-          `https://api.steampowered.com/IPlayerService/GetOwnedGames/v0001/?key=${apiKey}&steamid=${steamId64}&format=json&include_appinfo=1`
+          `https://api.steampowered.com/IPlayerService/GetOwnedGames/v0001/?key=${apiKey}&steamid=${steamId64}&format=json&include_appinfo=1&include_played_free_games=1`
         );
         if (gamesRes.ok) {
           const gamesJson = await gamesRes.json();
@@ -13531,12 +13531,19 @@ var SteamService = class _SteamService {
           const stats = statsJson?.playerstats?.stats || [];
           const killsStat = stats.find((s) => s.name === "total_kills");
           const deathsStat = stats.find((s) => s.name === "total_deaths");
+          const timeStat = stats.find((s) => s.name === "total_time_played");
           if (killsStat)
             cs2Kills = Number(killsStat.value) || 0;
           if (deathsStat)
             cs2Deaths = Number(deathsStat.value) || 0;
           if (cs2Deaths > 0) {
             cs2KdRatio = Number((cs2Kills / cs2Deaths).toFixed(2));
+          }
+          if (timeStat && timeStat.value) {
+            const matchHours = Math.round(Number(timeStat.value) / 3600);
+            if (matchHours > cs2Hours) {
+              cs2Hours = matchHours;
+            }
           }
         }
       } catch (e) {
