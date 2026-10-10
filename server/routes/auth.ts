@@ -16,11 +16,12 @@ const registerSchema = z.object({
     .trim()
     .min(2, 'Nickname deve ter no mínimo 2 caracteres')
     .max(32, 'Nickname deve ter no máximo 32 caracteres')
-    .regex(/^[a-zA-Z0-9_\-.]+$/, 'Nickname deve conter apenas letras, números, pontos, hífens ou underlines'),
+    .regex(/^[a-zA-Z0-9_\-.]+$/, 'Nickname deve conter apenas letras, números, pontos, hífens ou underlines')
+    .optional(),
   email: z.string().trim().email('E-mail em formato inválido').max(255),
   password: z
     .string()
-    .min(8, 'A senha deve conter no mínimo 8 caracteres')
+    .min(6, 'A senha deve conter no mínimo 6 caracteres')
     .max(128, 'Senha muito longa'),
 });
 
@@ -35,7 +36,7 @@ const resetRequestSchema = z.object({
 
 const resetConfirmSchema = z.object({
   token: z.string().min(1, 'Token de recuperação é obrigatório'),
-  newPassword: z.string().min(8, 'A nova senha deve ter no mínimo 8 caracteres'),
+  newPassword: z.string().min(6, 'A nova senha deve ter no mínimo 6 caracteres'),
 });
 
 function getClientIp(req: Request): string {
@@ -88,6 +89,13 @@ export async function handleAuth(req: Request): Promise<Response> {
 
       const { name, nickname, email, password } = parsed.data;
 
+      // Ensure a valid nickname
+      let finalNick = nickname?.trim();
+      if (!finalNick) {
+        const base = (name || email.split('@')[0]).replace(/[^a-zA-Z0-9_]/g, '').slice(0, 15);
+        finalNick = base ? `${base}_${Math.floor(100 + Math.random() * 900)}` : `player_${Date.now().toString().slice(-6)}`;
+      }
+
       // Check unique email
       const existingEmail = await sql`
         SELECT id FROM cs_arena.users WHERE LOWER(email) = LOWER(${email}) LIMIT 1;
@@ -98,7 +106,7 @@ export async function handleAuth(req: Request): Promise<Response> {
 
       // Check unique nickname
       const existingNick = await sql`
-        SELECT id FROM cs_arena.players WHERE LOWER(nickname) = LOWER(${nickname}) LIMIT 1;
+        SELECT id FROM cs_arena.players WHERE LOWER(nickname) = LOWER(${finalNick}) LIMIT 1;
       `;
       if (existingNick.length > 0) {
         return jsonResponse({ error: 'Este nickname já está em uso por outro jogador.' }, 409);
@@ -110,7 +118,7 @@ export async function handleAuth(req: Request): Promise<Response> {
       // Create User — Public registration is strictly forced to PLAYER role!
       const [newUser] = await sql`
         INSERT INTO cs_arena.users (name, nickname, email, password_hash, role, status)
-        VALUES (${name}, ${nickname}, ${email.toLowerCase()}, ${passwordHash}, 'PLAYER', 'ACTIVE')
+        VALUES (${name}, ${finalNick}, ${email.toLowerCase()}, ${passwordHash}, 'PLAYER', 'ACTIVE')
         RETURNING id, name, nickname, email, role, status;
       `;
 

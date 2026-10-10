@@ -11,7 +11,7 @@ export function validateCsrf(req: Request): boolean {
 
   const origin = req.headers.get('origin');
   const referer = req.headers.get('referer');
-  const host = req.headers.get('host');
+  const host = req.headers.get('x-forwarded-host') || req.headers.get('host');
 
   // If no origin and no referer in browser request
   if (!origin && !referer) {
@@ -43,6 +43,11 @@ export function validateCsrf(req: Request): boolean {
       if (parsedTarget.hostname === 'localhost' || parsedTarget.hostname === '127.0.0.1') {
         return true;
       }
+    }
+
+    // Allow all vercel.app domains (production and preview deployments)
+    if (parsedTarget.hostname.endsWith('.vercel.app')) {
+      return true;
     }
 
     return false;

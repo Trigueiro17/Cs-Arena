@@ -49,8 +49,8 @@ export function LoginPage() {
       return;
     }
 
-    if (password.length < 8) {
-      setError('A senha deve ter pelo menos 8 caracteres para maior segurança.');
+    if (password.length < 6) {
+      setError('A senha deve ter pelo menos 6 caracteres.');
       return;
     }
 
@@ -108,8 +108,8 @@ export function LoginPage() {
     setError(null);
     setSuccessMsg(null);
 
-    if (newPassword.length < 8) {
-      setError('A nova senha deve conter no mínimo 8 caracteres.');
+    if (newPassword.length < 6) {
+      setError('A nova senha deve conter no mínimo 6 caracteres.');
       setLoading(false);
       return;
     }
@@ -314,7 +314,7 @@ export function LoginPage() {
 
             <div>
               <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1">
-                Senha (mínimo 8 caracteres) *
+                Senha (mínimo 6 caracteres) *
               </label>
               <div className="relative">
                 <KeyRound className="w-4 h-4 absolute left-3 top-3 text-slate-500" />
@@ -322,9 +322,9 @@ export function LoginPage() {
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
+                  placeholder="••••••"
                   required
-                  minLength={8}
+                  minLength={6}
                   className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-9 pr-4 py-2 text-sm text-white focus:outline-none focus:border-cs-orange"
                 />
               </div>
@@ -340,9 +340,9 @@ export function LoginPage() {
                   type="password"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
-                  placeholder="••••••••"
+                  placeholder="••••••"
                   required
-                  minLength={8}
+                  minLength={6}
                   className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-9 pr-4 py-2 text-sm text-white focus:outline-none focus:border-cs-orange"
                 />
               </div>

@@ -13362,7 +13362,7 @@ function validateCsrf(req) {
   }
   const origin = req.headers.get("origin");
   const referer = req.headers.get("referer");
-  const host = req.headers.get("host");
+  const host = req.headers.get("x-forwarded-host") || req.headers.get("host");
   if (!origin && !referer) {
     return true;
   }
@@ -13387,6 +13387,9 @@ function validateCsrf(req) {
         return true;
       }
     }
+    if (parsedTarget.hostname.endsWith(".vercel.app")) {
+      return true;
+    }
     return false;
   } catch {
     return false;
@@ -13396,9 +13399,9 @@ function validateCsrf(req) {
 // server/routes/auth.ts
 var registerSchema = external_exports.object({
   name: external_exports.string().trim().min(2, "Nome deve ter no m\xEDnimo 2 caracteres").max(100, "Nome muito longo"),
-  nickname: external_exports.string().trim().min(2, "Nickname deve ter no m\xEDnimo 2 caracteres").max(32, "Nickname deve ter no m\xE1ximo 32 caracteres").regex(/^[a-zA-Z0-9_\-.]+$/, "Nickname deve conter apenas letras, n\xFAmeros, pontos, h\xEDfens ou underlines"),
+  nickname: external_exports.string().trim().min(2, "Nickname deve ter no m\xEDnimo 2 caracteres").max(32, "Nickname deve ter no m\xE1ximo 32 caracteres").regex(/^[a-zA-Z0-9_\-.]+$/, "Nickname deve conter apenas letras, n\xFAmeros, pontos, h\xEDfens ou underlines").optional(),
   email: external_exports.string().trim().email("E-mail em formato inv\xE1lido").max(255),
-  password: external_exports.string().min(8, "A senha deve conter no m\xEDnimo 8 caracteres").max(128, "Senha muito longa")
+  password: external_exports.string().min(6, "A senha deve conter no m\xEDnimo 6 caracteres").max(128, "Senha muito longa")
 });
 var loginSchema = external_exports.object({
   email: external_exports.string().trim().email("E-mail inv\xE1lido"),
@@ -13409,7 +13412,7 @@ var resetRequestSchema = external_exports.object({
 });
 var resetConfirmSchema = external_exports.object({
   token: external_exports.string().min(1, "Token de recupera\xE7\xE3o \xE9 obrigat\xF3rio"),
-  newPassword: external_exports.string().min(8, "A nova senha deve ter no m\xEDnimo 8 caracteres")
+  newPassword: external_exports.string().min(6, "A nova senha deve ter no m\xEDnimo 6 caracteres")
 });
 function getClientIp(req) {
   const forwarded = req.headers.get("x-forwarded-for");
@@ -13453,6 +13456,11 @@ async function handleAuth(req) {
         );
       }
       const { name, nickname, email, password } = parsed.data;
+      let finalNick = nickname?.trim();
+      if (!finalNick) {
+        const base = (name || email.split("@")[0]).replace(/[^a-zA-Z0-9_]/g, "").slice(0, 15);
+        finalNick = base ? `${base}_${Math.floor(100 + Math.random() * 900)}` : `player_${Date.now().toString().slice(-6)}`;
+      }
       const existingEmail = await sql`
         SELECT id FROM cs_arena.users WHERE LOWER(email) = LOWER(${email}) LIMIT 1;
       `;
@@ -13460,7 +13468,7 @@ async function handleAuth(req) {
         return jsonResponse({ error: "Este e-mail j\xE1 est\xE1 cadastrado no sistema." }, 409);
       }
       const existingNick = await sql`
-        SELECT id FROM cs_arena.players WHERE LOWER(nickname) = LOWER(${nickname}) LIMIT 1;
+        SELECT id FROM cs_arena.players WHERE LOWER(nickname) = LOWER(${finalNick}) LIMIT 1;
       `;
       if (existingNick.length > 0) {
         return jsonResponse({ error: "Este nickname j\xE1 est\xE1 em uso por outro jogador." }, 409);
@@ -13468,7 +13476,7 @@ async function handleAuth(req) {
       const passwordHash = await hashPassword(password);
       const [newUser] = await sql`
         INSERT INTO cs_arena.users (name, nickname, email, password_hash, role, status)
-        VALUES (${name}, ${nickname}, ${email.toLowerCase()}, ${passwordHash}, 'PLAYER', 'ACTIVE')
+        VALUES (${name}, ${finalNick}, ${email.toLowerCase()}, ${passwordHash}, 'PLAYER', 'ACTIVE')
         RETURNING id, name, nickname, email, role, status;
       `;
       await sql`
