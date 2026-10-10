@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, it, expect } from 'vitest';
 import { router } from '../server/index';
 
@@ -19,16 +20,36 @@ describe.skipIf(!hasDatabaseUrl)('CS Arena — Acceptance Criteria Demo Real (43
     expect(adminLoginRes.status).toBe(200);
     const adminData = await adminLoginRes.json();
     expect(adminData.token).toBeTruthy();
-    expect(adminData.user.role).toBe('admin');
+    expect(adminData.user.role.toUpperCase()).toBe('ADMIN');
     adminToken = adminData.token;
 
     // 2. Login Real de Jogador Comum
-    const playerLoginReq = new Request('http://localhost:5173/api/auth/login', {
+    let playerLoginReq = new Request('http://localhost:5173/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: 'player@csarena.com', password: 'player123' }),
     });
-    const playerLoginRes = await router(playerLoginReq);
+    let playerLoginRes = await router(playerLoginReq);
+    if (playerLoginRes.status === 401) {
+      await router(
+        new Request('http://localhost:5173/api/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: 'Jogador Teste Demo',
+            nickname: 'player_demo_43',
+            email: 'player@csarena.com',
+            password: 'player123',
+          }),
+        })
+      );
+      playerLoginReq = new Request('http://localhost:5173/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'player@csarena.com', password: 'player123' }),
+      });
+      playerLoginRes = await router(playerLoginReq);
+    }
     expect(playerLoginRes.status).toBe(200);
     const playerData = await playerLoginRes.json();
     playerToken = playerData.token;

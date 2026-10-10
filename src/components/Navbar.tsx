@@ -93,8 +93,14 @@ export function Navbar() {
                 <div className="text-xs font-black text-white truncate max-w-[130px] font-display tracking-wide">
                   {user.name}
                 </div>
-                <div className="text-[10px] uppercase font-extrabold text-amber-400 tracking-wider">
-                  {user.role === 'admin' ? 'ADMINISTRADOR' : 'JOGADOR'}
+                <div className="text-[10px] uppercase font-extrabold tracking-wider">
+                  {user.role === 'ADMIN' ? (
+                    <span className="text-amber-400">ADMINISTRADOR</span>
+                  ) : user.role === 'ORGANIZER' ? (
+                    <span className="text-purple-400">ORGANIZADOR</span>
+                  ) : (
+                    <span className="text-sky-400">JOGADOR</span>
+                  )}
                 </div>
               </div>
               <button

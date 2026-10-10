@@ -4,16 +4,68 @@ import { relations } from 'drizzle-orm';
 // Isolated PostgreSQL Schema for CS Arena
 export const csSchema = pgSchema('cs_arena');
 
-// Users (Admins and regular users)
+// Users (Admins, Organizers, Players)
 export const users = csSchema.table('users', {
   id: uuid('id').defaultRandom().primaryKey(),
+  name: text('name').notNull(),
+  nickname: text('nickname'),
   email: text('email').notNull().unique(),
   passwordHash: text('password_hash').notNull(),
-  name: text('name').notNull(),
-  role: text('role', { enum: ['admin', 'user'] }).default('user').notNull(),
+  role: text('role', { enum: ['ADMIN', 'ORGANIZER', 'PLAYER'] }).default('PLAYER').notNull(),
+  status: text('status', { enum: ['ACTIVE', 'INACTIVE', 'SUSPENDED'] }).default('ACTIVE').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
+
+// Auth Sessions (Revocable Sessions & Refresh Token Rotation with Family Reuse Detection)
+export const authSessions = csSchema.table('auth_sessions', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  familyId: uuid('family_id').notNull(),
+  refreshTokenHash: text('refresh_token_hash').notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  revokedAt: timestamp('revoked_at', { withTimezone: true }),
+  rotatedAt: timestamp('rotated_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  lastUsedAt: timestamp('last_used_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  sessionUserIdx: index('auth_session_user_idx').on(table.userId),
+  sessionFamilyIdx: index('auth_session_family_idx').on(table.familyId),
+  sessionTokenHashIdx: index('auth_session_token_hash_idx').on(table.refreshTokenHash),
+}));
+
+// Auth Audit Logs
+export const authAuditLogs = csSchema.table('auth_audit_logs', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
+  action: text('action').notNull(),
+  ipAddress: text('ip_address'),
+  userAgent: text('user_agent'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  auditUserIdx: index('auth_audit_user_idx').on(table.userId),
+  auditActionIdx: index('auth_audit_action_idx').on(table.action),
+  auditCreatedIdx: index('auth_audit_created_idx').on(table.createdAt),
+}));
+
+// Serverless Rate Limits Table
+export const rateLimits = csSchema.table('rate_limits', {
+  key: text('key').primaryKey(),
+  count: integer('count').default(1).notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+});
+
+// Password Reset Tokens
+export const passwordResetTokens = csSchema.table('password_reset_tokens', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  tokenHash: text('token_hash').notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  usedAt: timestamp('used_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  resetTokenHashIdx: index('pw_reset_token_hash_idx').on(table.tokenHash),
+}));
 
 // Players (can register for tournaments)
 export const players = csSchema.table('players', {

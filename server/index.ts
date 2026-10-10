@@ -1,4 +1,5 @@
 import { handleAuth } from './routes/auth';
+import { handleUsers } from './routes/users';
 import { handleTournaments } from './routes/tournaments';
 import { handleDraws } from './routes/draws';
 import { handleMatches } from './routes/matches';
@@ -79,6 +80,10 @@ export async function router(req: Request): Promise<Response> {
 
   if (primary === 'matches') {
     return handleMatches(req, segments.slice(1));
+  }
+
+  if (primary === 'users') {
+    return handleUsers(req, segments.slice(1));
   }
 
   return jsonResponse({ error: `Rota API '/api/${pathname}' não encontrada.` }, 404);

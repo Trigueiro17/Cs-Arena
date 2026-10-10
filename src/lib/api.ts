@@ -1,7 +1,8 @@
 // Typed API Client for CS Arena
+import { getAccessToken } from './token-store';
 
 function getHeaders(): HeadersInit {
-  const token = localStorage.getItem('cs_token');
+  const token = getAccessToken();
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
   };

@@ -101,7 +101,7 @@ export function Route({
   component: Component,
 }: {
   path: string;
-  component: React.ComponentType<{ params: Record<string, string> }>;
+  component: React.ComponentType<any>;
 }) {
   const { path: currentPath } = useRouter();
   const { matches, params } = matchRoute(path, currentPath);

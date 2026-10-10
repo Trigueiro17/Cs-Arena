@@ -199,6 +199,68 @@ export async function runMigrations() {
   await sql`CREATE INDEX IF NOT EXISTS audit_created_idx ON cs_arena.audit_logs(created_at);`;
   await sql`CREATE INDEX IF NOT EXISTS audit_entity_idx ON cs_arena.audit_logs(entity_type, entity_id);`;
 
+  // 14. Atualização da tabela de Usuários (adicionar nickname, status e normalizar roles)
+  await sql`ALTER TABLE cs_arena.users ADD COLUMN IF NOT EXISTS nickname TEXT;`;
+  await sql`ALTER TABLE cs_arena.users ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'ACTIVE';`;
+  await sql`UPDATE cs_arena.users SET role = 'ADMIN' WHERE LOWER(role) = 'admin';`;
+  await sql`UPDATE cs_arena.users SET role = 'PLAYER' WHERE LOWER(role) = 'user';`;
+
+  // 15. Tabela de Sessões de Autenticação (Refresh Tokens rotativos com detecção de reuso)
+  await sql`
+    CREATE TABLE IF NOT EXISTS cs_arena.auth_sessions (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id UUID NOT NULL REFERENCES cs_arena.users(id) ON DELETE CASCADE,
+      family_id UUID NOT NULL,
+      refresh_token_hash TEXT NOT NULL,
+      expires_at TIMESTAMPTZ NOT NULL,
+      revoked_at TIMESTAMPTZ,
+      rotated_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_used_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS auth_session_user_idx ON cs_arena.auth_sessions(user_id);`;
+  await sql`CREATE INDEX IF NOT EXISTS auth_session_family_idx ON cs_arena.auth_sessions(family_id);`;
+  await sql`CREATE INDEX IF NOT EXISTS auth_session_token_hash_idx ON cs_arena.auth_sessions(refresh_token_hash);`;
+
+  // 16. Logs de Auditoria de Autenticação
+  await sql`
+    CREATE TABLE IF NOT EXISTS cs_arena.auth_audit_logs (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id UUID REFERENCES cs_arena.users(id) ON DELETE SET NULL,
+      action TEXT NOT NULL,
+      ip_address TEXT,
+      user_agent TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS auth_audit_user_idx ON cs_arena.auth_audit_logs(user_id);`;
+  await sql`CREATE INDEX IF NOT EXISTS auth_audit_action_idx ON cs_arena.auth_audit_logs(action);`;
+  await sql`CREATE INDEX IF NOT EXISTS auth_audit_created_idx ON cs_arena.auth_audit_logs(created_at);`;
+
+  // 17. Tabela de Rate Limiting Compartilhada (Serverless Friendly)
+  await sql`
+    CREATE TABLE IF NOT EXISTS cs_arena.rate_limits (
+      key TEXT PRIMARY KEY,
+      count INTEGER NOT NULL DEFAULT 1,
+      expires_at TIMESTAMPTZ NOT NULL
+    );
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS rate_limits_expires_idx ON cs_arena.rate_limits(expires_at);`;
+
+  // 18. Tokens de Recuperação de Senha (Uso único, expiração curta)
+  await sql`
+    CREATE TABLE IF NOT EXISTS cs_arena.password_reset_tokens (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id UUID NOT NULL REFERENCES cs_arena.users(id) ON DELETE CASCADE,
+      token_hash TEXT NOT NULL,
+      expires_at TIMESTAMPTZ NOT NULL,
+      used_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS pw_reset_token_hash_idx ON cs_arena.password_reset_tokens(token_hash);`;
+
   console.log('✅ Todas as tabelas, índices e constraints no schema cs_arena foram criadas com sucesso!');
 }
 
