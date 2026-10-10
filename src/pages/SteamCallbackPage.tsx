@@ -13,6 +13,7 @@ export function SteamCallbackPage() {
     steamId: string;
     skillRating: number;
     steamLevel: number;
+    cs2Hours: number;
   } | null>(null);
 
   useEffect(() => {
@@ -21,6 +22,7 @@ export function SteamCallbackPage() {
     const steamId = params.get('steamId');
     const skillRating = Number(params.get('skillRating')) || 1000;
     const steamLevel = Number(params.get('steamLevel')) || 1;
+    const cs2Hours = Number(params.get('cs2Hours')) || 0;
     const error = params.get('error');
 
     if (error) {
@@ -50,12 +52,17 @@ export function SteamCallbackPage() {
       role: userRole,
       status: 'ACTIVE' as const,
       avatarUrl: userAvatar,
+      steamId: steamId || undefined,
+      steamLevel,
+      cs2Hours,
+      skillRating,
     };
 
     setSteamDetails({
       steamId: steamId || '',
       skillRating,
       steamLevel,
+      cs2Hours,
     });
 
     loginWithToken(token, userData)
@@ -111,26 +118,35 @@ export function SteamCallbackPage() {
             </p>
 
             {steamDetails && (
-              <div className="grid grid-cols-2 gap-3 bg-slate-900/80 p-4 rounded-2xl border border-slate-800 mb-6 text-left">
+              <div className="grid grid-cols-3 gap-2 bg-slate-900/80 p-3.5 rounded-2xl border border-slate-800 mb-6 text-left">
                 <div>
-                  <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">
+                  <div className="text-[9px] uppercase font-bold text-slate-400 tracking-wider">
                     Nível Steam
                   </div>
-                  <div className="text-lg font-black text-white flex items-center gap-1 mt-0.5">
-                    <span className="w-5 h-5 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-[10px] text-sky-400 font-mono">
+                  <div className="text-base font-black text-white flex items-center gap-1 mt-0.5">
+                    <span className="w-4 h-4 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-[9px] text-sky-400 font-mono">
                       {steamDetails.steamLevel}
                     </span>
-                    Nvl {steamDetails.steamLevel}
+                    Nv.{steamDetails.steamLevel}
                   </div>
                 </div>
 
                 <div>
-                  <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">
-                    Skill Rating (Elo)
+                  <div className="text-[9px] uppercase font-bold text-slate-400 tracking-wider">
+                    Horas CS2
                   </div>
-                  <div className="text-lg font-black text-cs-orange flex items-center gap-1 mt-0.5">
-                    <Flame className="w-4 h-4 fill-cs-orange" />
-                    {steamDetails.skillRating} pts
+                  <div className="text-base font-black text-emerald-400 mt-0.5 font-mono">
+                    {steamDetails.cs2Hours || 0}h
+                  </div>
+                </div>
+
+                <div>
+                  <div className="text-[9px] uppercase font-bold text-slate-400 tracking-wider">
+                    Elo Rating
+                  </div>
+                  <div className="text-base font-black text-cs-orange flex items-center gap-0.5 mt-0.5">
+                    <Flame className="w-3.5 h-3.5 fill-cs-orange" />
+                    {steamDetails.skillRating}
                   </div>
                 </div>
               </div>

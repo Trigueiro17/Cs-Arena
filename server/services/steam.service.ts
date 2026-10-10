@@ -76,33 +76,59 @@ export class SteamService {
       const verifyParams = new URLSearchParams();
       if (params instanceof URLSearchParams) {
         for (const [key, value] of params.entries()) {
-          verifyParams.set(key, value);
+          if (key.startsWith('openid.')) {
+            verifyParams.set(key, value);
+          }
         }
       } else {
         for (const [key, value] of Object.entries(params)) {
-          verifyParams.set(key, value);
+          if (key.startsWith('openid.')) {
+            verifyParams.set(key, value);
+          }
         }
       }
 
       verifyParams.set('openid.mode', 'check_authentication');
 
-      const response = await fetch('https://steamcommunity.com/openid/login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: verifyParams.toString(),
-      });
-
-      if (!response.ok) {
-        return { valid: false, steamId64, error: 'Falha ao contatar servidor de autenticação da Steam.' };
+      // 1. Try standard POST validation
+      let isValid = false;
+      try {
+        const postRes = await fetch('https://steamcommunity.com/openid/login', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'User-Agent': 'CS-Arena-Auth/1.0',
+          },
+          body: verifyParams.toString(),
+        });
+        if (postRes.ok) {
+          const text = await postRes.text();
+          isValid = text.includes('is_valid:true');
+        }
+      } catch (postErr) {
+        console.warn('[Steam OpenID] POST verification notice:', postErr);
       }
 
-      const text = await response.text();
-      const isValid = text.includes('is_valid:true');
+      // 2. Fallback to GET validation if POST was rejected
+      if (!isValid) {
+        try {
+          const getRes = await fetch(`https://steamcommunity.com/openid/login?${verifyParams.toString()}`, {
+            method: 'GET',
+            headers: {
+              'User-Agent': 'CS-Arena-Auth/1.0',
+            },
+          });
+          if (getRes.ok) {
+            const getText = await getRes.text();
+            isValid = getText.includes('is_valid:true');
+          }
+        } catch (getErr) {
+          console.warn('[Steam OpenID] GET verification notice:', getErr);
+        }
+      }
 
       if (!isValid) {
-        return { valid: false, steamId64, error: 'Assinatura OpenID da Steam rejeitada.' };
+        return { valid: false, steamId64, error: 'Assinatura OpenID da Steam rejeitada pelo servidor.' };
       }
 
       return { valid: true, steamId64 };
@@ -118,7 +144,7 @@ export class SteamService {
     steamId64: string,
     apiKeyOverride?: string
   ): Promise<SteamPlayerProfile> {
-    const apiKey = apiKeyOverride || process.env.STEAM_API_KEY || '';
+    const apiKey = apiKeyOverride || process.env.STEAM_API_KEY || '03D899DEE8DE8E13D6CC82EDBDEB11E0';
 
     let nickname = `SteamPlayer_${steamId64.slice(-4)}`;
     let avatarUrl = `https://api.dicebear.com/7.x/bottts/svg?seed=${steamId64}`;

@@ -490,6 +490,11 @@ export async function handleAuth(req: Request): Promise<Response> {
         nickname: player.nickname || user.nickname,
         role: user.role,
         status: user.status,
+        avatarUrl: player.avatar_url || user.avatar_url || null,
+        steamId: player.steam_id || validation.steamId64,
+        steamLevel: player.steam_level !== null && player.steam_level !== undefined ? Number(player.steam_level) : null,
+        cs2Hours: player.cs2_hours !== null && player.cs2_hours !== undefined ? Number(player.cs2_hours) : null,
+        skillRating: player.skill_rating !== null && player.skill_rating !== undefined ? Number(player.skill_rating) : null,
       });
 
       await logAuthAudit('STEAM_LOGIN_SUCCESS', user.id, ip, ua);
@@ -500,6 +505,7 @@ export async function handleAuth(req: Request): Promise<Response> {
         steamId: player.steam_id || validation.steamId64,
         skillRating: String(player.skill_rating || 1000),
         steamLevel: String(player.steam_level || 0),
+        cs2Hours: String(player.cs2_hours || 0),
         userId: user.id,
         userName: user.name || player.nickname,
         userNickname: player.nickname || user.nickname || user.name,

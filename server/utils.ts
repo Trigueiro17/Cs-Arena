@@ -49,7 +49,12 @@ export async function getAuthUser(req: Request): Promise<UserClaims | null> {
 
     // Verify current user state in PostgreSQL to prevent revoked/banned users with valid JWT
     const [dbUser] = await sql`
-      SELECT id, role, status FROM cs_arena.users WHERE id = ${claims.userId} LIMIT 1;
+      SELECT u.id, u.role, u.status, u.steam_id, u.avatar_url,
+             p.steam_level, p.cs2_hours, p.skill_rating
+      FROM cs_arena.users u
+      LEFT JOIN cs_arena.players p ON (p.user_id = u.id OR (u.steam_id IS NOT NULL AND p.steam_id = u.steam_id))
+      WHERE u.id = ${claims.userId}
+      LIMIT 1;
     `;
 
     if (!dbUser || dbUser.status !== 'ACTIVE') {
@@ -60,6 +65,11 @@ export async function getAuthUser(req: Request): Promise<UserClaims | null> {
       ...claims,
       role: dbUser.role as UserRole,
       status: dbUser.status as any,
+      avatarUrl: dbUser.avatar_url || claims.avatarUrl || null,
+      steamId: dbUser.steam_id || claims.steamId || null,
+      steamLevel: dbUser.steam_level !== null && dbUser.steam_level !== undefined ? Number(dbUser.steam_level) : (claims.steamLevel || null),
+      cs2Hours: dbUser.cs2_hours !== null && dbUser.cs2_hours !== undefined ? Number(dbUser.cs2_hours) : (claims.cs2Hours || null),
+      skillRating: dbUser.skill_rating !== null && dbUser.skill_rating !== undefined ? Number(dbUser.skill_rating) : (claims.skillRating || null),
     };
   } catch (err) {
     return null;

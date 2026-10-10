@@ -13,6 +13,11 @@ export interface UserClaims {
   nickname?: string | null;
   role: UserRole;
   status: UserStatus;
+  avatarUrl?: string | null;
+  steamId?: string | null;
+  steamLevel?: number | null;
+  cs2Hours?: number | null;
+  skillRating?: number | null;
 }
 
 let cachedSecretKey: crypto.KeyObject | null = null;
@@ -41,6 +46,11 @@ export async function issueAccessToken(user: UserClaims): Promise<{ token: strin
     nickname: user.nickname || null,
     role: user.role,
     status: user.status,
+    avatarUrl: user.avatarUrl || null,
+    steamId: user.steamId || null,
+    steamLevel: user.steamLevel || null,
+    cs2Hours: user.cs2Hours || null,
+    skillRating: user.skillRating || null,
   })
     .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
     .setSubject(user.userId)

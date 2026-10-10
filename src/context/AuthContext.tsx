@@ -12,6 +12,10 @@ export interface User {
   role: UserRole;
   status: UserStatus;
   avatarUrl?: string | null;
+  steamId?: string | null;
+  steamLevel?: number | null;
+  cs2Hours?: number | null;
+  skillRating?: number | null;
 }
 
 interface AuthContextType {
@@ -97,7 +101,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
 
       if (!res.ok) {
-        clearAuth();
+        // If there is no stored token, clear state
+        if (!getAccessToken()) {
+          clearAuth();
+        }
         return false;
       }
 
@@ -107,10 +114,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return true;
       }
 
-      clearAuth();
       return false;
     } catch {
-      clearAuth();
       return false;
     }
   }, [applyAuth, clearAuth]);
@@ -160,7 +165,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               if (meData.user) {
                 applyAuth(meData.user, storedToken, 900);
                 setIsLoading(false);
-                silentRefresh().catch(() => {});
                 return;
               }
             }

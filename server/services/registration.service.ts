@@ -42,12 +42,33 @@ export class RegistrationService {
         throw new Error('Nickname é obrigatório.');
       }
 
-      [player] = await sql`
-        SELECT id, nickname, steam_id, avatar_url, preferred_role, skill_rating
-        FROM cs_arena.players
-        WHERE LOWER(nickname) = LOWER(${nickname.trim()})
-        LIMIT 1;
-      `;
+      if (steamId) {
+        [player] = await sql`
+          SELECT id, nickname, steam_id, avatar_url, preferred_role, skill_rating
+          FROM cs_arena.players
+          WHERE steam_id = ${steamId}
+          LIMIT 1;
+        `;
+      }
+
+      if (!player) {
+        [player] = await sql`
+          SELECT id, nickname, steam_id, avatar_url, preferred_role, skill_rating
+          FROM cs_arena.players
+          WHERE LOWER(nickname) = LOWER(${nickname.trim()})
+          LIMIT 1;
+        `;
+      }
+
+      if (player && steamId && !player.steam_id) {
+        const [updated] = await sql`
+          UPDATE cs_arena.players
+          SET steam_id = ${steamId}
+          WHERE id = ${player.id}
+          RETURNING id, nickname, steam_id, avatar_url, preferred_role, skill_rating;
+        `;
+        if (updated) player = updated;
+      }
 
       if (!player) {
         const avatar =

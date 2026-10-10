@@ -15,6 +15,7 @@ import {
   Info,
 } from 'lucide-react';
 import { GameMode, getGameModeLabel } from '../lib/tournament-engine';
+import { useAuth } from '../context/AuthContext';
 
 const registerSchema = z.object({
   nickname: z
@@ -58,16 +59,29 @@ export function TournamentRegisterPage({ params }: { params: Record<string, stri
     load();
   }, [id]);
 
+  const { user } = useAuth();
+
   const {
     register,
     handleSubmit,
+    setValue,
     formState: { errors, isSubmitting },
   } = useForm<RegisterFormData>({
     resolver: zodResolver(registerSchema),
     defaultValues: {
+      nickname: user?.nickname || user?.name || '',
+      steamId: user?.steamId || '',
       preferredRole: 'Flex',
     },
   });
+
+  useEffect(() => {
+    if (user) {
+      if (user.nickname) setValue('nickname', user.nickname);
+      else if (user.name) setValue('nickname', user.name);
+      if (user.steamId) setValue('steamId', user.steamId);
+    }
+  }, [user, setValue]);
 
   const onSubmit = async (data: RegisterFormData) => {
     setServerError(null);
@@ -177,6 +191,50 @@ export function TournamentRegisterPage({ params }: { params: Record<string, stri
           </div>
         ) : (
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+            {user?.steamId ? (
+              <div className="p-3.5 rounded-2xl bg-gradient-to-r from-sky-950/70 via-slate-900 to-sky-950/70 border border-sky-400/40 flex items-center justify-between shadow-lg">
+                <div className="flex items-center gap-3">
+                  {user.avatarUrl && (
+                    <img
+                      src={user.avatarUrl}
+                      alt={user.name}
+                      className="w-11 h-11 rounded-xl border border-sky-400/50 object-cover shadow-sm bg-slate-900"
+                    />
+                  )}
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-black text-white">{user.nickname || user.name}</span>
+                      {user.steamLevel ? (
+                        <span className="px-1.5 py-0.5 rounded bg-sky-950 border border-sky-400/50 text-[10px] font-mono font-bold text-sky-300">
+                          Nv. {user.steamLevel}
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="text-[11px] text-slate-300 flex items-center gap-2 mt-0.5">
+                      <span className="text-cs-orange font-mono font-bold">{user.skillRating || 1000} pts (Elo)</span>
+                      <span>•</span>
+                      <span className="text-emerald-400 font-mono font-bold">{user.cs2Hours || 0}h CS2</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <span className="px-2.5 py-1 rounded-full bg-sky-500/10 border border-sky-500/30 text-sky-400 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1">
+                    <ShieldCheck className="w-3.5 h-3.5 text-sky-400" /> Steam Conectada
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800 flex items-center justify-between text-xs text-slate-400">
+                <span>Conecte sua Steam para importar horas e nível de CS2 automaticamente:</span>
+                <a
+                  href="/api/auth/steam"
+                  className="px-3 py-1 rounded-lg bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 font-bold border border-sky-500/30 text-[11px] transition-colors"
+                >
+                  Entrar com a Steam
+                </a>
+              </div>
+            )}
+
             <div>
               <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1">
                 Nickname no Counter-Strike 2 *

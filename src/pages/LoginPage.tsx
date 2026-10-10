@@ -19,6 +19,16 @@ export function LoginPage() {
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  React.useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const urlError = params.get('error');
+      if (urlError) {
+        setError(decodeURIComponent(urlError));
+      }
+    } catch {}
+  }, []);
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);

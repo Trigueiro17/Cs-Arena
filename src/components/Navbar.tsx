@@ -89,17 +89,44 @@ export function Navbar() {
 
           {user ? (
             <div className="flex items-center gap-3 pl-3 border-l border-white/10">
+              {user.avatarUrl && (
+                <img
+                  src={user.avatarUrl}
+                  alt={user.name}
+                  className="w-9 h-9 rounded-xl border border-sky-400/40 object-cover shadow-md bg-slate-900"
+                />
+              )}
               <div className="text-right">
-                <div className="text-xs font-black text-white truncate max-w-[130px] font-display tracking-wide">
-                  {user.name}
+                <div className="text-xs font-black text-white truncate max-w-[140px] font-display tracking-wide flex items-center justify-end gap-1.5">
+                  <span>{user.nickname || user.name}</span>
+                  {user.steamLevel ? (
+                    <span
+                      title={`Nível Steam: ${user.steamLevel} | CS2: ${user.cs2Hours || 0}h | Elo: ${user.skillRating || 1000}`}
+                      className="px-1.5 py-0.2 rounded bg-sky-950 border border-sky-400/50 text-[9px] font-mono font-extrabold text-sky-300 shadow-sm"
+                    >
+                      Nv.{user.steamLevel}
+                    </span>
+                  ) : null}
                 </div>
-                <div className="text-[10px] uppercase font-extrabold tracking-wider">
+                <div className="text-[10px] font-bold tracking-wider flex items-center justify-end gap-1.5 mt-0.5">
+                  {user.skillRating ? (
+                    <span className="text-cs-orange font-mono font-black flex items-center gap-0.5">
+                      <Sparkles className="w-2.5 h-2.5 text-cs-orange" />
+                      {user.skillRating} pts
+                    </span>
+                  ) : null}
+                  {user.cs2Hours ? (
+                    <span className="text-slate-400 font-mono text-[9px]">
+                      {user.cs2Hours}h
+                    </span>
+                  ) : null}
+                  <span className="text-slate-500">•</span>
                   {user.role === 'ADMIN' ? (
-                    <span className="text-amber-400">ADMINISTRADOR</span>
+                    <span className="text-amber-400 uppercase font-extrabold text-[9px]">ADMIN</span>
                   ) : user.role === 'ORGANIZER' ? (
-                    <span className="text-purple-400">ORGANIZADOR</span>
+                    <span className="text-purple-400 uppercase font-extrabold text-[9px]">ORGANIZADOR</span>
                   ) : (
-                    <span className="text-sky-400">JOGADOR</span>
+                    <span className="text-sky-400 uppercase font-extrabold text-[9px]">JOGADOR</span>
                   )}
                 </div>
               </div>
@@ -169,9 +196,32 @@ export function Navbar() {
           )}
           {user ? (
             <div className="pt-3 border-t border-white/10 flex justify-between items-center">
-              <div>
-                <div className="text-sm font-bold text-white">{user.name}</div>
-                <div className="text-[10px] text-amber-400 uppercase font-bold">{user.role}</div>
+              <div className="flex items-center gap-2.5">
+                {user.avatarUrl && (
+                  <img
+                    src={user.avatarUrl}
+                    alt={user.name}
+                    className="w-9 h-9 rounded-xl border border-sky-400/40 object-cover bg-slate-900"
+                  />
+                )}
+                <div>
+                  <div className="text-sm font-bold text-white flex items-center gap-1.5">
+                    <span>{user.nickname || user.name}</span>
+                    {user.steamLevel ? (
+                      <span className="px-1.5 py-0.2 rounded bg-sky-950 border border-sky-400/50 text-[9px] font-mono font-bold text-sky-300">
+                        Nv.{user.steamLevel}
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="text-[10px] text-amber-400 uppercase font-bold flex items-center gap-2">
+                    <span>{user.role}</span>
+                    {user.skillRating ? (
+                      <span className="text-cs-orange font-mono font-bold">
+                        • {user.skillRating} pts
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
               </div>
               <button
                 onClick={() => {
