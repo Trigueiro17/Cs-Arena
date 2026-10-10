@@ -15,13 +15,19 @@ export const api = {
   // Tournaments
   async getTournaments() {
     const res = await fetch('/api/tournaments', { headers: getHeaders() });
-    if (!res.ok) throw new Error('Falha ao buscar campeonatos');
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Falha ao buscar campeonatos');
+    }
     return res.json();
   },
 
   async getTournament(id: string) {
     const res = await fetch(`/api/tournaments/${id}`, { headers: getHeaders() });
-    if (!res.ok) throw new Error('Falha ao buscar campeonato');
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Falha ao buscar campeonato');
+    }
     return res.json();
   },
 

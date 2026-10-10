@@ -92,7 +92,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (!res.ok) {
-        return { success: false, error: data.error || 'Credenciais inválidas.' };
+        const msg = data.error?.includes('DATABASE_URL')
+          ? 'Banco de dados não configurado na Vercel. Adicione DATABASE_URL em Settings > Environment Variables.'
+          : data.error || 'Credenciais inválidas.';
+        return { success: false, error: msg };
       }
 
       setToken(data.token);
@@ -130,7 +133,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (!res.ok) {
-        return { success: false, error: data.error || 'Falha ao cadastrar usuário.' };
+        const msg = data.error?.includes('DATABASE_URL')
+          ? 'Banco de dados não configurado na Vercel. Adicione DATABASE_URL em Settings > Environment Variables.'
+          : data.error || 'Falha ao cadastrar usuário.';
+        return { success: false, error: msg };
       }
 
       setToken(data.token);
