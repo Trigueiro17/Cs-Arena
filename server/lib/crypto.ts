@@ -1,17 +1,26 @@
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 
-let argon2: any = null;
-try {
-  argon2 = await import('@node-rs/argon2');
-} catch {
-  argon2 = null;
+let argon2Module: any = null;
+let argon2Loaded = false;
+
+async function getArgon2() {
+  if (!argon2Loaded) {
+    try {
+      argon2Module = await import('@node-rs/argon2');
+    } catch {
+      argon2Module = null;
+    }
+    argon2Loaded = true;
+  }
+  return argon2Module;
 }
 
 /**
  * Hash password using Argon2id with recommended parameters (fallback to bcrypt if native addon fails)
  */
 export async function hashPassword(password: string): Promise<string> {
+  const argon2 = await getArgon2();
   if (argon2 && typeof argon2.hash === 'function') {
     try {
       return await argon2.hash(password, {
@@ -32,6 +41,8 @@ export async function hashPassword(password: string): Promise<string> {
  */
 export async function verifyPassword(password: string, hash: string): Promise<{ valid: boolean; needsRehash: boolean }> {
   if (!hash) return { valid: false, needsRehash: false };
+
+  const argon2 = await getArgon2();
 
   // Check if hash is Argon2id
   if (hash.startsWith('$argon2id$') || hash.startsWith('$argon2i$') || hash.startsWith('$argon2d$')) {
