@@ -27,14 +27,8 @@ jobs:
         run: npm run build
 
       - name: Executar Testes Automatizados (Vitest)
-        run: |
-          if [ -n "$DATABASE_URL" ]; then
-            npm test
-          else
-            npx vitest run tests/tournament-engine.test.ts
-          fi
+        run: npm run test:unit
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
           JWT_SECRET: ${{ secrets.JWT_SECRET || 'cs-arena-ci-secret-key-32-chars-long' }}
           JWT_ISSUER: cs-arena
           JWT_AUDIENCE: cs-arena-web
