@@ -185,19 +185,51 @@ export class SteamService {
       } catch (e) {
         console.warn('Falha parcial ao consultar Steam Web API:', e);
       }
-    } else {
-      // Fallback: public XML profile lookup without API key
+    }
+
+    // Secondary fallback: scrape public HTML and XML profile to extract real Level and details if Web API didn't provide them
+    if (steamLevel <= 1 || !avatarUrl || nickname.startsWith('SteamPlayer_')) {
       try {
-        const xmlRes = await fetch(`https://steamcommunity.com/profiles/${steamId64}/?xml=1`);
+        const [xmlRes, htmlRes] = await Promise.all([
+          fetch(`https://steamcommunity.com/profiles/${steamId64}/?xml=1`),
+          fetch(`https://steamcommunity.com/profiles/${steamId64}/`),
+        ]);
+
         if (xmlRes.ok) {
           const xmlText = await xmlRes.text();
-          const nickMatch = xmlText.match(/<steamID><!\[CDATA\[(.*?)\]\]><\/steamID>/) || xmlText.match(/<steamID>(.*?)<\/steamID>/);
-          const avatarMatch = xmlText.match(/<avatarFull><!\[CDATA\[(.*?)\]\]><\/avatarFull>/) || xmlText.match(/<avatarFull>(.*?)<\/avatarFull>/);
+          const nickMatch =
+            xmlText.match(/<steamID><!\[CDATA\[(.*?)\]\]><\/steamID>/) ||
+            xmlText.match(/<steamID>(.*?)<\/steamID>/);
+          const avatarMatch =
+            xmlText.match(/<avatarFull><!\[CDATA\[(.*?)\]\]><\/avatarFull>/) ||
+            xmlText.match(/<avatarFull>(.*?)<\/avatarFull>/);
           if (nickMatch && nickMatch[1]) nickname = nickMatch[1];
           if (avatarMatch && avatarMatch[1]) avatarUrl = avatarMatch[1];
         }
-      } catch {
-        // Fallback to defaults
+
+        if (htmlRes.ok) {
+          const htmlText = await htmlRes.text();
+          const levelMatch =
+            htmlText.match(/class="friendPlayerLevelNum">(\d+)</i) ||
+            htmlText.match(/class="persona_name persona_level">.*?<span class="friendPlayerLevelNum">(\d+)</is) ||
+            htmlText.match(/friendPlayerLevelNum">(\d+)</);
+          if (levelMatch && levelMatch[1]) {
+            steamLevel = Number(levelMatch[1]) || steamLevel;
+          }
+
+          // Check if hours are listed in recent games section
+          const csHoursMatch =
+            htmlText.match(/Counter-Strike 2.*?(\d+(?:,\d+)?(?:\.\d+)?)\s*(?:hrs|hours|horas)/is) ||
+            htmlText.match(/730.*?(\d+(?:,\d+)?(?:\.\d+)?)\s*(?:hrs|hours|horas)/is);
+          if (csHoursMatch && csHoursMatch[1]) {
+            const parsedHours = parseFloat(csHoursMatch[1].replace(',', '.'));
+            if (!isNaN(parsedHours) && parsedHours > 0) {
+              cs2Hours = Math.round(parsedHours);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Falha no fallback de raspagem pública da Steam:', err);
       }
     }
 

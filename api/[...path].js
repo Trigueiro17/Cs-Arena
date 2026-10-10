@@ -13542,9 +13542,13 @@ var SteamService = class _SteamService {
       } catch (e) {
         console.warn("Falha parcial ao consultar Steam Web API:", e);
       }
-    } else {
+    }
+    if (steamLevel <= 1 || !avatarUrl || nickname.startsWith("SteamPlayer_")) {
       try {
-        const xmlRes = await fetch(`https://steamcommunity.com/profiles/${steamId64}/?xml=1`);
+        const [xmlRes, htmlRes] = await Promise.all([
+          fetch(`https://steamcommunity.com/profiles/${steamId64}/?xml=1`),
+          fetch(`https://steamcommunity.com/profiles/${steamId64}/`)
+        ]);
         if (xmlRes.ok) {
           const xmlText = await xmlRes.text();
           const nickMatch = xmlText.match(/<steamID><!\[CDATA\[(.*?)\]\]><\/steamID>/) || xmlText.match(/<steamID>(.*?)<\/steamID>/);
@@ -13554,7 +13558,22 @@ var SteamService = class _SteamService {
           if (avatarMatch && avatarMatch[1])
             avatarUrl = avatarMatch[1];
         }
-      } catch {
+        if (htmlRes.ok) {
+          const htmlText = await htmlRes.text();
+          const levelMatch = htmlText.match(/class="friendPlayerLevelNum">(\d+)</i) || htmlText.match(/class="persona_name persona_level">.*?<span class="friendPlayerLevelNum">(\d+)</is) || htmlText.match(/friendPlayerLevelNum">(\d+)</);
+          if (levelMatch && levelMatch[1]) {
+            steamLevel = Number(levelMatch[1]) || steamLevel;
+          }
+          const csHoursMatch = htmlText.match(/Counter-Strike 2.*?(\d+(?:,\d+)?(?:\.\d+)?)\s*(?:hrs|hours|horas)/is) || htmlText.match(/730.*?(\d+(?:,\d+)?(?:\.\d+)?)\s*(?:hrs|hours|horas)/is);
+          if (csHoursMatch && csHoursMatch[1]) {
+            const parsedHours = parseFloat(csHoursMatch[1].replace(",", "."));
+            if (!isNaN(parsedHours) && parsedHours > 0) {
+              cs2Hours = Math.round(parsedHours);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("Falha no fallback de raspagem p\xFAblica da Steam:", err);
       }
     }
     const skillRating = _SteamService.calculateSkillRating(cs2Hours, steamLevel, cs2Kills, cs2Deaths, cs2KdRatio);
