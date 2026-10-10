@@ -10,12 +10,16 @@ export const users = csSchema.table('users', {
   name: text('name').notNull(),
   nickname: text('nickname'),
   email: text('email').notNull().unique(),
-  passwordHash: text('password_hash').notNull(),
+  passwordHash: text('password_hash'),
+  steamId: text('steam_id'),
+  avatarUrl: text('avatar_url'),
   role: text('role', { enum: ['ADMIN', 'ORGANIZER', 'PLAYER'] }).default('PLAYER').notNull(),
   status: text('status', { enum: ['ACTIVE', 'INACTIVE', 'SUSPENDED'] }).default('ACTIVE').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-});
+}, (table) => ({
+  userSteamIdIdx: index('users_steam_id_idx').on(table.steamId),
+}));
 
 // Auth Sessions (Revocable Sessions & Refresh Token Rotation with Family Reuse Detection)
 export const authSessions = csSchema.table('auth_sessions', {
@@ -70,13 +74,22 @@ export const passwordResetTokens = csSchema.table('password_reset_tokens', {
 // Players (can register for tournaments)
 export const players = csSchema.table('players', {
   id: uuid('id').defaultRandom().primaryKey(),
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
   nickname: text('nickname').notNull().unique(),
   steamId: text('steam_id'),
   avatarUrl: text('avatar_url'),
   preferredRole: text('preferred_role', { enum: ['AWP', 'Entry', 'Support', 'IGL', 'Flex'] }).default('Flex').notNull(),
   skillRating: integer('skill_rating').default(1000).notNull(),
+  steamLevel: integer('steam_level'),
+  cs2Hours: integer('cs2_hours'),
+  cs2Kills: integer('cs2_kills'),
+  cs2Deaths: integer('cs2_deaths'),
+  steamSyncedAt: timestamp('steam_synced_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-});
+}, (table) => ({
+  playerUserIdIdx: index('player_user_id_idx').on(table.userId),
+  playerSteamIdIdx: index('player_steam_id_idx').on(table.steamId),
+}));
 
 // Tournaments
 export const tournaments = csSchema.table('tournaments', {
@@ -84,9 +97,12 @@ export const tournaments = csSchema.table('tournaments', {
   name: text('name').notNull(),
   slug: text('slug').notNull().unique(),
   description: text('description'),
+  gameMode: text('game_mode', { enum: ['1v1', '2v2', '3v3', '4v4', '5v5'] }).default('5v5').notNull(),
   format: text('format').default('single_elimination').notNull(),
   teamSize: integer('team_size').default(5).notNull(),
   bestOf: integer('best_of').default(1).notNull(),
+  thirdPlaceEnabled: boolean('third_place_enabled').default(false).notNull(),
+  mapSelection: text('map_selection').default('admin').notNull(),
   maxPlayers: integer('max_players'),
   status: text('status', {
     enum: ['draft', 'registration_open', 'registration_closed', 'drawing', 'in_progress', 'completed', 'cancelled']
@@ -157,11 +173,16 @@ export const matches = csSchema.table('matches', {
   bracketPosition: integer('bracket_position').notNull(),
   teamAId: uuid('team_a_id').references(() => teams.id, { onDelete: 'set null' }),
   teamBId: uuid('team_b_id').references(() => teams.id, { onDelete: 'set null' }),
+  playerAId: uuid('player_a_id').references(() => players.id, { onDelete: 'set null' }),
+  playerBId: uuid('player_b_id').references(() => players.id, { onDelete: 'set null' }),
   nextMatchId: uuid('next_match_id'),
   nextMatchSlot: text('next_match_slot', { enum: ['team_a', 'team_b'] }),
   winnerId: uuid('winner_id').references(() => teams.id, { onDelete: 'set null' }),
+  winnerPlayerId: uuid('winner_player_id').references(() => players.id, { onDelete: 'set null' }),
   isBye: boolean('is_bye').default(false).notNull(),
   bestOf: integer('best_of').default(1).notNull(),
+  mapName: text('map_name'),
+  evidenceUrl: text('evidence_url'),
   status: text('status', {
     enum: ['pending', 'in_progress', 'completed', 'cancelled']
   }).default('pending').notNull(),
@@ -171,6 +192,8 @@ export const matches = csSchema.table('matches', {
 }, (table) => ({
   matchTournamentIdx: index('match_tournament_id_idx').on(table.tournamentId),
   matchRoundIdx: index('match_round_id_idx').on(table.roundId),
+  matchPlayerAIdx: index('match_player_a_idx').on(table.playerAId),
+  matchPlayerBIdx: index('match_player_b_idx').on(table.playerBId),
 }));
 
 // Match Maps
@@ -182,6 +205,7 @@ export const matchMaps = csSchema.table('match_maps', {
   scoreA: integer('score_a').default(0).notNull(),
   scoreB: integer('score_b').default(0).notNull(),
   winnerId: uuid('winner_id').references(() => teams.id, { onDelete: 'set null' }),
+  winnerPlayerId: uuid('winner_player_id').references(() => players.id, { onDelete: 'set null' }),
 }, (table) => ({
   matchMapOrderUniqueIdx: uniqueIndex('match_map_order_unique_idx').on(table.matchId, table.orderNumber),
 }));
@@ -262,13 +286,17 @@ export const matchesRelations = relations(matches, ({ one, many }) => ({
   round: one(bracketRounds, { fields: [matches.roundId], references: [bracketRounds.id] }),
   teamA: one(teams, { fields: [matches.teamAId], references: [teams.id] }),
   teamB: one(teams, { fields: [matches.teamBId], references: [teams.id] }),
+  playerA: one(players, { fields: [matches.playerAId], references: [players.id] }),
+  playerB: one(players, { fields: [matches.playerBId], references: [players.id] }),
   winner: one(teams, { fields: [matches.winnerId], references: [teams.id] }),
+  winnerPlayer: one(players, { fields: [matches.winnerPlayerId], references: [players.id] }),
   maps: many(matchMaps),
 }));
 
 export const matchMapsRelations = relations(matchMaps, ({ one }) => ({
   match: one(matches, { fields: [matchMaps.matchId], references: [matches.id] }),
   winner: one(teams, { fields: [matchMaps.winnerId], references: [teams.id] }),
+  winnerPlayer: one(players, { fields: [matchMaps.winnerPlayerId], references: [players.id] }),
 }));
 
 export const drawsRelations = relations(draws, ({ one, many }) => ({

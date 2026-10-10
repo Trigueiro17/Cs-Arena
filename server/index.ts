@@ -72,8 +72,16 @@ export async function router(req: Request): Promise<Response> {
   if (primary === 'tournaments') {
     const tournamentId = segments[1];
     const subAction = segments[2];
-    if (tournamentId && (subAction === 'draw-teams' || subAction === 'draw-bracket')) {
-      return handleDraws(req, tournamentId, subAction);
+    if (
+      tournamentId &&
+      (subAction === 'draw-teams' ||
+        subAction === 'draw-bracket' ||
+        (subAction === 'draw' && req.method === 'POST') ||
+        (subAction === 'bracket' && req.method === 'POST'))
+    ) {
+      const mappedAction =
+        subAction === 'draw' ? 'draw-teams' : subAction === 'bracket' ? 'draw-bracket' : subAction;
+      return handleDraws(req, tournamentId, mappedAction);
     }
     return handleTournaments(req, segments.slice(1));
   }

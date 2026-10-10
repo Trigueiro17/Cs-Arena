@@ -7,6 +7,7 @@ import { serializeRefreshTokenCookie, clearRefreshTokenCookie, extractRefreshTok
 import { checkRateLimit } from '../lib/rate-limit';
 import { validateCsrf } from '../lib/csrf';
 import { logAuthAudit } from '../lib/audit';
+import { SteamService } from '../services/steam.service';
 
 // Validation Schemas (Zod)
 const registerSchema = z.object({
@@ -436,6 +437,99 @@ export async function handleAuth(req: Request): Promise<Response> {
       });
     } catch (err: any) {
       return jsonResponse({ error: err.message || 'Erro ao redefinir senha' }, 500);
+    }
+  }
+
+  // 10. GET /api/auth/steam — Redireciona para login OpenID da Steam
+  if (method === 'GET' && path === 'steam') {
+    const origin = url.origin || process.env.APP_URL || 'http://localhost:5173';
+    const redirectUrl = SteamService.buildLoginUrl(origin, '/api/auth/steam/return');
+
+    if (url.searchParams.get('format') === 'json' || req.headers.get('accept')?.includes('application/json')) {
+      return jsonResponse({ url: redirectUrl });
+    }
+
+    return new Response(null, {
+      status: 302,
+      headers: {
+        Location: redirectUrl,
+      },
+    });
+  }
+
+  // 11. GET /api/auth/steam/return — Callback OpenID da Steam
+  if (method === 'GET' && path === 'steam/return') {
+    const origin = url.origin || process.env.APP_URL || 'http://localhost:5173';
+    const validation = await SteamService.validateOpenIdResponse(url.searchParams);
+
+    if (!validation.valid || !validation.steamId64) {
+      const errorMsg = encodeURIComponent(validation.error || 'Falha na autenticação com a Steam.');
+      return new Response(null, {
+        status: 302,
+        headers: {
+          Location: `${origin}/login?error=${errorMsg}`,
+        },
+      });
+    }
+
+    try {
+      const { user, player } = await SteamService.syncSteamUserAndPlayer(validation.steamId64);
+
+      const { accessToken, cookieHeader } = await issueTokens({
+        userId: user.id,
+        email: user.email,
+        name: user.name,
+        nickname: player.nickname || user.nickname,
+        role: user.role,
+        status: user.status,
+      });
+
+      await logAuthAudit('STEAM_LOGIN_SUCCESS', user.id, ip, ua);
+
+      const headers = new Headers();
+      headers.set(
+        'Location',
+        `${origin}/auth/callback?token=${accessToken}&steamId=${player.steam_id || validation.steamId64}&skillRating=${player.skill_rating}&steamLevel=${player.steam_level || 0}`
+      );
+      if (cookieHeader) {
+        headers.set('Set-Cookie', cookieHeader);
+      }
+
+      return new Response(null, {
+        status: 302,
+        headers,
+      });
+    } catch (err: any) {
+      console.error('[STEAM AUTH RETURN ERROR]:', err);
+      const errorMsg = encodeURIComponent(err.message || 'Erro ao sincronizar dados da Steam.');
+      return new Response(null, {
+        status: 302,
+        headers: {
+          Location: `${origin}/login?error=${errorMsg}`,
+        },
+      });
+    }
+  }
+
+  // 12. POST /api/auth/steam/sync — Re-sincronizar nível e estatísticas da Steam
+  if (method === 'POST' && path === 'steam/sync') {
+    const authCheck = await requireAuth(req);
+    if ('errorResponse' in authCheck) return authCheck.errorResponse;
+
+    try {
+      const [user] = await sql`
+        SELECT id, steam_id FROM cs_arena.users WHERE id = ${authCheck.user.userId} LIMIT 1;
+      `;
+
+      const steamId = user?.steam_id;
+      if (!steamId) {
+        return jsonResponse({ error: 'Nenhuma conta Steam vinculada a este usuário.' }, 400);
+      }
+
+      const { player } = await SteamService.syncSteamUserAndPlayer(steamId, user.id);
+      return jsonResponse({ success: true, player });
+    } catch (err: any) {
+      return jsonResponse({ error: err.message || 'Erro ao sincronizar perfil Steam' }, 500);
     }
   }
 

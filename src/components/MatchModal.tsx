@@ -1,56 +1,42 @@
 import React, { useState } from 'react';
 import { api } from '../lib/api';
-import { X, Trophy, Plus, Trash2, CheckCircle } from 'lucide-react';
-
-const CS2_MAP_POOL = ['Mirage', 'Inferno', 'Nuke', 'Ancient', 'Anubis', 'Dust II', 'Vertigo'];
+import { X, Trophy, CheckCircle, MapPin, Link2, AlertCircle } from 'lucide-react';
+import { GameMode, getRecommendedMaps } from '../lib/tournament-engine';
 
 interface MatchModalProps {
   match: any;
+  tournamentGameMode?: GameMode;
   onClose: () => void;
   onSuccess: () => void;
 }
 
-export function MatchModal({ match, onClose, onSuccess }: MatchModalProps) {
-  const bestOf = match.best_of || 1;
-  const initialMaps = (match.maps && match.maps.length > 0)
-    ? match.maps.map((m: any) => ({
-        orderNumber: m.order_number,
-        mapName: m.map_name,
-        scoreA: m.score_a,
-        scoreB: m.score_b,
-      }))
-    : [
-        {
-          orderNumber: 1,
-          mapName: 'Mirage',
-          scoreA: 13,
-          scoreB: 11,
-        },
-      ];
+export function MatchModal({ match, tournamentGameMode, onClose, onSuccess }: MatchModalProps) {
+  const gameMode: GameMode = tournamentGameMode || match.game_mode || '5v5';
+  const recommendedMaps = getRecommendedMaps(gameMode);
 
-  const [maps, setMaps] = useState(initialMaps);
+  const initialMapName =
+    match.map_name ||
+    (match.maps && match.maps[0]?.map_name) ||
+    recommendedMaps[0] ||
+    'Mirage';
+
+  const initialScoreA = match.maps && match.maps[0] ? match.maps[0].score_a : 13;
+  const initialScoreB = match.maps && match.maps[0] ? match.maps[0].score_b : 11;
+  const initialEvidence = match.evidence_url || '';
+
+  const [mapName, setMapName] = useState(initialMapName);
+  const [customMap, setCustomMap] = useState('');
+  const [isCustom, setIsCustom] = useState(!recommendedMaps.includes(initialMapName));
+  const [scoreA, setScoreA] = useState<number>(initialScoreA);
+  const [scoreB, setScoreB] = useState<number>(initialScoreB);
+  const [evidenceUrl, setEvidenceUrl] = useState(initialEvidence);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const addMap = () => {
-    if (maps.length >= bestOf) return;
-    const nextOrder = maps.length + 1;
-    const usedMaps = maps.map((m: any) => m.mapName);
-    const available = CS2_MAP_POOL.find(name => !usedMaps.includes(name)) || CS2_MAP_POOL[0];
+  const partAName = match.player_a_name || match.team_a_name || 'Participante A';
+  const partBName = match.player_b_name || match.team_b_name || 'Participante B';
 
-    setMaps([...maps, { orderNumber: nextOrder, mapName: available, scoreA: 13, scoreB: 9 }]);
-  };
-
-  const removeMap = (index: number) => {
-    if (maps.length <= 1) return;
-    setMaps(maps.filter((_: any, i: number) => i !== index).map((m: any, i: number) => ({ ...m, orderNumber: i + 1 })));
-  };
-
-  const updateMap = (index: number, field: string, val: any) => {
-    const updated = [...maps];
-    updated[index] = { ...updated[index], [field]: val };
-    setMaps(updated);
-  };
+  const effectiveMapName = isCustom && customMap.trim() ? customMap.trim() : mapName;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -58,16 +44,29 @@ export function MatchModal({ match, onClose, onSuccess }: MatchModalProps) {
     setErrorMessage(null);
 
     // Validate no ties
-    for (const m of maps) {
-      if (Number(m.scoreA) === Number(m.scoreB)) {
-        setErrorMessage(`O mapa ${m.orderNumber} (${m.mapName}) não pode terminar empatado no CS2.`);
-        setIsSubmitting(false);
-        return;
-      }
+    if (Number(scoreA) === Number(scoreB)) {
+      setErrorMessage('Partidas de Counter-Strike 2 não podem terminar empatadas. Deve haver um vencedor.');
+      setIsSubmitting(false);
+      return;
     }
 
+    if (!effectiveMapName) {
+      setErrorMessage('Selecione ou informe o mapa disputado.');
+      setIsSubmitting(false);
+      return;
+    }
+
+    const mapsPayload = [
+      {
+        orderNumber: 1,
+        mapName: effectiveMapName,
+        scoreA: Number(scoreA),
+        scoreB: Number(scoreB),
+      },
+    ];
+
     try {
-      await api.submitMatchResult(match.id, maps);
+      await api.submitMatchResult(match.id, mapsPayload, evidenceUrl.trim() || undefined);
       onSuccess();
       onClose();
     } catch (err: any) {
@@ -88,112 +87,147 @@ export function MatchModal({ match, onClose, onSuccess }: MatchModalProps) {
         </button>
 
         <div className="mb-6">
-          <div className="text-xs uppercase font-bold text-cs-orange tracking-wider">
-            Painel de Arbitragem — MD{bestOf}
+          <div className="text-xs uppercase font-bold text-cs-orange tracking-wider flex items-center gap-1.5">
+            <Trophy className="w-3.5 h-3.5" />
+            Arbitragem Oficial • MD1 Eliminatório
           </div>
-          <h2 className="text-xl font-bold font-display text-white mt-1">
-            {match.team_a_name || 'A definir'} vs {match.team_b_name || 'A definir'}
+          <h2 className="text-xl font-bold font-display text-white mt-1 truncate">
+            {partAName} <span className="text-slate-500 font-normal">vs</span> {partBName}
           </h2>
-          <p className="text-xs text-slate-400">
-            Informe os placares oficiais de cada mapa disputado.
+          <p className="text-xs text-slate-400 mt-0.5">
+            Defina o mapa oficial da partida e registre os rounds oficiais da disputa.
           </p>
         </div>
 
         {errorMessage && (
-          <div className="p-3 mb-4 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-xs">
-            {errorMessage}
+          <div className="p-3 mb-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{errorMessage}</span>
           </div>
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1">
-            {maps.map((m: any, index: number) => (
-              <div key={index} className="p-3 rounded-xl bg-cs-surface border border-cs-border space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-300">
-                    Mapa {m.orderNumber}
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <select
-                      value={m.mapName}
-                      onChange={(e) => updateMap(index, 'mapName', e.target.value)}
-                      className="bg-slate-900 border border-slate-700 text-white text-xs rounded px-2 py-1"
-                    >
-                      {CS2_MAP_POOL.map(mapName => (
-                        <option key={mapName} value={mapName}>
-                          {mapName}
-                        </option>
-                      ))}
-                    </select>
-                    {maps.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => removeMap(index)}
-                        className="text-slate-400 hover:text-red-400 p-1"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    )}
-                  </div>
-                </div>
+          {/* Map Selection */}
+          <div className="p-4 rounded-xl bg-cs-surface border border-cs-border space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                <MapPin className="w-3.5 h-3.5 text-cs-orange" />
+                Mapa Disputado *
+              </label>
+              <button
+                type="button"
+                onClick={() => setIsCustom(!isCustom)}
+                className="text-[11px] text-cs-cyan hover:underline font-mono"
+              >
+                {isCustom ? 'Escolher do pool' : 'Outro mapa / Custom'}
+              </button>
+            </div>
 
-                <div className="grid grid-cols-2 gap-3 items-center">
-                  <div>
-                    <label className="text-[11px] text-slate-400 block mb-1 truncate">
-                      {match.team_a_name || 'Time A'}
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={m.scoreA}
-                      onChange={(e) => updateMap(index, 'scoreA', Number(e.target.value))}
-                      className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-center font-bold font-mono text-white"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[11px] text-slate-400 block mb-1 truncate">
-                      {match.team_b_name || 'Time B'}
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={m.scoreB}
-                      onChange={(e) => updateMap(index, 'scoreB', Number(e.target.value))}
-                      className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-center font-bold font-mono text-white"
-                      required
-                    />
-                  </div>
-                </div>
-              </div>
-            ))}
+            {isCustom ? (
+              <input
+                type="text"
+                value={customMap}
+                onChange={(e) => setCustomMap(e.target.value)}
+                placeholder="Ex: aim_map, aim_redline, workshop_map"
+                required
+                className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cs-orange font-mono"
+              />
+            ) : (
+              <select
+                value={mapName}
+                onChange={(e) => setMapName(e.target.value)}
+                className="w-full bg-slate-900 border border-slate-700 text-white text-xs rounded-xl px-3 py-2 focus:outline-none focus:border-cs-orange font-mono"
+              >
+                {recommendedMaps.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
 
-          {maps.length < bestOf && (
-            <button
-              type="button"
-              onClick={addMap}
-              className="w-full py-2 border border-dashed border-slate-700 hover:border-cs-orange text-slate-300 hover:text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-1 transition-colors"
-            >
-              <Plus className="w-4 h-4 text-cs-orange" /> Adicionar Próximo Mapa da Série
-            </button>
-          )}
+          {/* Scores Row */}
+          <div className="p-4 rounded-xl bg-cs-surface border border-cs-border space-y-2">
+            <span className="text-xs font-bold text-slate-300 uppercase tracking-wider block mb-2">
+              Placar Oficial (MD1)
+            </span>
 
-          <div className="pt-2 flex justify-end gap-2">
+            <div className="grid grid-cols-2 gap-4 items-center">
+              <div className="space-y-1">
+                <label className="text-[11px] text-slate-300 font-semibold block truncate">
+                  {partAName}
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  value={scoreA}
+                  onChange={(e) => setScoreA(Number(e.target.value))}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-center font-black font-mono text-xl text-white focus:outline-none focus:border-cs-orange"
+                  required
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] text-slate-300 font-semibold block truncate">
+                  {partBName}
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  value={scoreB}
+                  onChange={(e) => setScoreB(Number(e.target.value))}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-center font-black font-mono text-xl text-white focus:outline-none focus:border-cs-orange"
+                  required
+                />
+              </div>
+            </div>
+
+            {/* Winner live preview */}
+            <div className="text-center pt-2">
+              {scoreA !== scoreB ? (
+                <span className="text-xs font-bold text-emerald-400 font-mono">
+                  Vencedor: {scoreA > scoreB ? partAName : partBName}
+                </span>
+              ) : (
+                <span className="text-xs text-amber-400 font-mono">
+                  Placar empatado (informe o vencedor da prorrogação)
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Evidence URL (Optional) */}
+          <div>
+            <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1 flex items-center gap-1.5">
+              <Link2 className="w-3.5 h-3.5 text-slate-400" />
+              Link da Evidência / Screenshot (Opcional)
+            </label>
+            <input
+              type="url"
+              value={evidenceUrl}
+              onChange={(e) => setEvidenceUrl(e.target.value)}
+              placeholder="https://imgur.com/... ou link da demo"
+              className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cs-orange font-mono"
+            />
+          </div>
+
+          {/* Action Buttons */}
+          <div className="pt-2 flex justify-end gap-2.5">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-xs font-semibold rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300"
+              className="px-4 py-2 text-xs font-semibold rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300"
             >
               Cancelar
             </button>
             <button
               type="submit"
-              disabled={isSubmitting}
-              className="px-5 py-2 text-xs font-bold rounded-lg bg-cs-orange hover:bg-cs-orange-hover text-cs-dark flex items-center gap-1.5 shadow-glow-orange disabled:opacity-50"
+              disabled={isSubmitting || scoreA === scoreB}
+              className="px-5 py-2.5 text-xs font-bold rounded-xl bg-cs-orange hover:bg-cs-orange-hover text-cs-dark flex items-center gap-1.5 shadow-glow-orange disabled:opacity-50"
             >
               <CheckCircle className="w-4 h-4" />
-              {isSubmitting ? 'Salvando...' : 'Confirmar Resultado e Avançar'}
+              {isSubmitting ? 'Salvando...' : 'Confirmar Resultado e Avançar Vencedor'}
             </button>
           </div>
         </form>

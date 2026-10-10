@@ -100,6 +100,7 @@ export function TournamentBracketPage({ params }: { params: Record<string, strin
         <BracketView
           rounds={bracketData.rounds}
           matches={bracketData.matches}
+          tournament={tournament}
           onRefresh={loadData}
         />
       )}

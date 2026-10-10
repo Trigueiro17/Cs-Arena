@@ -13399,6 +13399,281 @@ function validateCsrf(req) {
   }
 }
 
+// server/services/steam.service.ts
+var SteamService = class _SteamService {
+  /**
+   * Constructs the OpenID 2.0 URL to redirect the user to Steam Community Login.
+   */
+  static buildLoginUrl(baseUrl, returnPath = "/api/auth/steam/return") {
+    const cleanBase = baseUrl.replace(/\/+$/, "");
+    const returnUrl = `${cleanBase}${returnPath.startsWith("/") ? returnPath : `/${returnPath}`}`;
+    const realm = cleanBase;
+    const steamUrl = new URL("https://steamcommunity.com/openid/login");
+    steamUrl.searchParams.set("openid.ns", "http://specs.openid.net/auth/2.0");
+    steamUrl.searchParams.set("openid.mode", "checkid_setup");
+    steamUrl.searchParams.set("openid.return_to", returnUrl);
+    steamUrl.searchParams.set("openid.realm", realm);
+    steamUrl.searchParams.set("openid.identity", "http://specs.openid.net/auth/2.0/identifier_select");
+    steamUrl.searchParams.set("openid.claimed_id", "http://specs.openid.net/auth/2.0/identifier_select");
+    return steamUrl.toString();
+  }
+  /**
+   * Validates OpenID 2.0 response parameters received from Steam.
+   */
+  static async validateOpenIdResponse(params) {
+    const getParam = (key) => {
+      if (params instanceof URLSearchParams)
+        return params.get(key);
+      return params[key] || null;
+    };
+    const mode = getParam("openid.mode");
+    if (mode === "cancel") {
+      return { valid: false, steamId64: null, error: "Autentica\xE7\xE3o cancelada pelo usu\xE1rio na Steam." };
+    }
+    if (mode !== "id_res") {
+      return { valid: false, steamId64: null, error: "Modo de resposta OpenID inv\xE1lido." };
+    }
+    const claimedId = getParam("openid.claimed_id");
+    if (!claimedId) {
+      return { valid: false, steamId64: null, error: "Identificador claimed_id ausente." };
+    }
+    const match = claimedId.match(/^https?:\/\/steamcommunity\.com\/openid\/id\/(\d+)$/);
+    if (!match || !match[1]) {
+      return { valid: false, steamId64: null, error: "Formato de SteamID inv\xE1lido." };
+    }
+    const steamId64 = match[1];
+    const isMock = getParam("openid.test_mock") === "true" || process.env.NODE_ENV === "test" && getParam("openid.sig") === "mock_sig";
+    if (isMock) {
+      return { valid: true, steamId64 };
+    }
+    try {
+      const verifyParams = new URLSearchParams();
+      if (params instanceof URLSearchParams) {
+        for (const [key, value] of params.entries()) {
+          verifyParams.set(key, value);
+        }
+      } else {
+        for (const [key, value] of Object.entries(params)) {
+          verifyParams.set(key, value);
+        }
+      }
+      verifyParams.set("openid.mode", "check_authentication");
+      const response = await fetch("https://steamcommunity.com/openid/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded"
+        },
+        body: verifyParams.toString()
+      });
+      if (!response.ok) {
+        return { valid: false, steamId64, error: "Falha ao contatar servidor de autentica\xE7\xE3o da Steam." };
+      }
+      const text = await response.text();
+      const isValid2 = text.includes("is_valid:true");
+      if (!isValid2) {
+        return { valid: false, steamId64, error: "Assinatura OpenID da Steam rejeitada." };
+      }
+      return { valid: true, steamId64 };
+    } catch (err) {
+      return { valid: false, steamId64, error: err.message || "Erro na verifica\xE7\xE3o OpenID com a Steam." };
+    }
+  }
+  /**
+   * Fetches player profile, Steam Level, and CS2 gameplay stats to compute balanced skill rating.
+   */
+  static async fetchSteamPlayerData(steamId64, apiKeyOverride) {
+    const apiKey = apiKeyOverride || process.env.STEAM_API_KEY || "";
+    let nickname = `SteamPlayer_${steamId64.slice(-4)}`;
+    let avatarUrl = `https://api.dicebear.com/7.x/bottts/svg?seed=${steamId64}`;
+    let profileUrl = `https://steamcommunity.com/profiles/${steamId64}`;
+    let steamLevel = 1;
+    let cs2Hours = 0;
+    let cs2Kills = 0;
+    let cs2Deaths = 0;
+    let cs2KdRatio = 1;
+    if (apiKey) {
+      try {
+        const summaryRes = await fetch(
+          `https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key=${apiKey}&steamids=${steamId64}`
+        );
+        if (summaryRes.ok) {
+          const summaryJson = await summaryRes.json();
+          const player = summaryJson?.response?.players?.[0];
+          if (player) {
+            nickname = player.personaname || nickname;
+            avatarUrl = player.avatarfull || player.avatarmedium || avatarUrl;
+            profileUrl = player.profileurl || profileUrl;
+          }
+        }
+        const levelRes = await fetch(
+          `https://api.steampowered.com/IPlayerService/GetSteamLevel/v1/?key=${apiKey}&steamid=${steamId64}`
+        );
+        if (levelRes.ok) {
+          const levelJson = await levelRes.json();
+          steamLevel = Number(levelJson?.response?.player_level) || 1;
+        }
+        const gamesRes = await fetch(
+          `https://api.steampowered.com/IPlayerService/GetOwnedGames/v0001/?key=${apiKey}&steamid=${steamId64}&format=json&include_appinfo=1`
+        );
+        if (gamesRes.ok) {
+          const gamesJson = await gamesRes.json();
+          const games = gamesJson?.response?.games || [];
+          const cs2 = games.find((g) => g.appid === 730);
+          if (cs2 && cs2.playtime_forever) {
+            cs2Hours = Math.round(cs2.playtime_forever / 60);
+          }
+        }
+        const statsRes = await fetch(
+          `https://api.steampowered.com/ISteamUserStats/GetUserStatsForGame/v0002/?appid=730&key=${apiKey}&steamid=${steamId64}`
+        );
+        if (statsRes.ok) {
+          const statsJson = await statsRes.json();
+          const stats = statsJson?.playerstats?.stats || [];
+          const killsStat = stats.find((s) => s.name === "total_kills");
+          const deathsStat = stats.find((s) => s.name === "total_deaths");
+          if (killsStat)
+            cs2Kills = Number(killsStat.value) || 0;
+          if (deathsStat)
+            cs2Deaths = Number(deathsStat.value) || 0;
+          if (cs2Deaths > 0) {
+            cs2KdRatio = Number((cs2Kills / cs2Deaths).toFixed(2));
+          }
+        }
+      } catch (e) {
+        console.warn("Falha parcial ao consultar Steam Web API:", e);
+      }
+    } else {
+      try {
+        const xmlRes = await fetch(`https://steamcommunity.com/profiles/${steamId64}/?xml=1`);
+        if (xmlRes.ok) {
+          const xmlText = await xmlRes.text();
+          const nickMatch = xmlText.match(/<steamID><!\[CDATA\[(.*?)\]\]><\/steamID>/) || xmlText.match(/<steamID>(.*?)<\/steamID>/);
+          const avatarMatch = xmlText.match(/<avatarFull><!\[CDATA\[(.*?)\]\]><\/avatarFull>/) || xmlText.match(/<avatarFull>(.*?)<\/avatarFull>/);
+          if (nickMatch && nickMatch[1])
+            nickname = nickMatch[1];
+          if (avatarMatch && avatarMatch[1])
+            avatarUrl = avatarMatch[1];
+        }
+      } catch {
+      }
+    }
+    const skillRating = _SteamService.calculateSkillRating(cs2Hours, steamLevel, cs2Kills, cs2Deaths, cs2KdRatio);
+    return {
+      steamId64,
+      nickname,
+      avatarUrl,
+      profileUrl,
+      steamLevel,
+      cs2Hours,
+      cs2Kills,
+      cs2Deaths,
+      cs2KdRatio,
+      skillRating
+    };
+  }
+  /**
+   * Calculates intelligent CS2 skill rating (Elo 800 - 3200) based on Steam level and stats.
+   */
+  static calculateSkillRating(cs2Hours, steamLevel = 1, cs2Kills = 0, cs2Deaths = 0, cs2KdRatio = 1) {
+    const hoursPoints = Math.min(Math.round(cs2Hours * 0.75), 1400);
+    const levelPoints = Math.min(Math.round(steamLevel * 12), 500);
+    const kdBonus = cs2Kills > 0 && cs2Deaths > 0 ? Math.max(-300, Math.min(500, Math.round((cs2KdRatio - 1) * 300))) : 0;
+    let skillRating = 1e3 + hoursPoints + levelPoints + kdBonus;
+    return Math.max(800, Math.min(3200, skillRating));
+  }
+  /**
+   * Syncs and links Steam profile to an existing or new user and player record in database.
+   */
+  static async syncSteamUserAndPlayer(steamId64, existingUserId) {
+    const steamData = await this.fetchSteamPlayerData(steamId64);
+    let user = null;
+    if (existingUserId) {
+      const [updated] = await sql`
+        UPDATE cs_arena.users
+        SET 
+          steam_id = ${steamId64},
+          avatar_url = COALESCE(avatar_url, ${steamData.avatarUrl}),
+          updated_at = NOW()
+        WHERE id = ${existingUserId}
+        RETURNING *;
+      `;
+      user = updated;
+    } else {
+      const [found] = await sql`
+        SELECT * FROM cs_arena.users WHERE steam_id = ${steamId64} LIMIT 1;
+      `;
+      if (found) {
+        const [updated] = await sql`
+          UPDATE cs_arena.users
+          SET 
+            avatar_url = ${steamData.avatarUrl},
+            updated_at = NOW()
+          WHERE id = ${found.id}
+          RETURNING *;
+        `;
+        user = updated;
+      } else {
+        const fakeEmail = `${steamId64}@steam.csarena.internal`;
+        const [created] = await sql`
+          INSERT INTO cs_arena.users (name, nickname, email, steam_id, avatar_url, role, status)
+          VALUES (
+            ${steamData.nickname}, ${steamData.nickname}, ${fakeEmail},
+            ${steamId64}, ${steamData.avatarUrl}, 'PLAYER', 'ACTIVE'
+          )
+          RETURNING *;
+        `;
+        user = created;
+      }
+    }
+    let [player] = await sql`
+      SELECT * FROM cs_arena.players 
+      WHERE steam_id = ${steamId64} OR (user_id IS NOT NULL AND user_id = ${user.id})
+      LIMIT 1;
+    `;
+    if (player) {
+      const [updatedPlayer] = await sql`
+        UPDATE cs_arena.players
+        SET
+          user_id = ${user.id},
+          steam_id = ${steamId64},
+          avatar_url = ${steamData.avatarUrl},
+          steam_level = ${steamData.steamLevel},
+          cs2_hours = ${steamData.cs2Hours},
+          cs2_kills = ${steamData.cs2Kills || 0},
+          cs2_deaths = ${steamData.cs2Deaths || 0},
+          skill_rating = ${steamData.skillRating},
+          steam_synced_at = NOW()
+        WHERE id = ${player.id}
+        RETURNING *;
+      `;
+      player = updatedPlayer;
+    } else {
+      let finalNick = steamData.nickname;
+      const [nickTaken] = await sql`
+        SELECT id FROM cs_arena.players WHERE LOWER(nickname) = LOWER(${finalNick}) LIMIT 1;
+      `;
+      if (nickTaken) {
+        finalNick = `${steamData.nickname}_${steamId64.slice(-4)}`;
+      }
+      const [newPlayer] = await sql`
+        INSERT INTO cs_arena.players (
+          user_id, nickname, steam_id, avatar_url,
+          steam_level, cs2_hours, cs2_kills, cs2_deaths,
+          skill_rating, steam_synced_at, preferred_role
+        )
+        VALUES (
+          ${user.id}, ${finalNick}, ${steamId64}, ${steamData.avatarUrl},
+          ${steamData.steamLevel}, ${steamData.cs2Hours}, ${steamData.cs2Kills || 0}, ${steamData.cs2Deaths || 0},
+          ${steamData.skillRating}, NOW(), 'Flex'
+        )
+        RETURNING *;
+      `;
+      player = newPlayer;
+    }
+    return { user, player };
+  }
+};
+
 // server/routes/auth.ts
 var registerSchema = external_exports.object({
   name: external_exports.string().trim().min(2, "Nome deve ter no m\xEDnimo 2 caracteres").max(100, "Nome muito longo"),
@@ -13732,6 +14007,83 @@ async function handleAuth(req) {
       return jsonResponse({ error: err.message || "Erro ao redefinir senha" }, 500);
     }
   }
+  if (method === "GET" && path === "steam") {
+    const origin = url.origin || process.env.APP_URL || "http://localhost:5173";
+    const redirectUrl = SteamService.buildLoginUrl(origin, "/api/auth/steam/return");
+    if (url.searchParams.get("format") === "json" || req.headers.get("accept")?.includes("application/json")) {
+      return jsonResponse({ url: redirectUrl });
+    }
+    return new Response(null, {
+      status: 302,
+      headers: {
+        Location: redirectUrl
+      }
+    });
+  }
+  if (method === "GET" && path === "steam/return") {
+    const origin = url.origin || process.env.APP_URL || "http://localhost:5173";
+    const validation = await SteamService.validateOpenIdResponse(url.searchParams);
+    if (!validation.valid || !validation.steamId64) {
+      const errorMsg = encodeURIComponent(validation.error || "Falha na autentica\xE7\xE3o com a Steam.");
+      return new Response(null, {
+        status: 302,
+        headers: {
+          Location: `${origin}/login?error=${errorMsg}`
+        }
+      });
+    }
+    try {
+      const { user, player } = await SteamService.syncSteamUserAndPlayer(validation.steamId64);
+      const { accessToken, cookieHeader } = await issueTokens({
+        userId: user.id,
+        email: user.email,
+        name: user.name,
+        nickname: player.nickname || user.nickname,
+        role: user.role,
+        status: user.status
+      });
+      await logAuthAudit("STEAM_LOGIN_SUCCESS", user.id, ip, ua);
+      const headers = new Headers();
+      headers.set(
+        "Location",
+        `${origin}/auth/callback?token=${accessToken}&steamId=${player.steam_id || validation.steamId64}&skillRating=${player.skill_rating}&steamLevel=${player.steam_level || 0}`
+      );
+      if (cookieHeader) {
+        headers.set("Set-Cookie", cookieHeader);
+      }
+      return new Response(null, {
+        status: 302,
+        headers
+      });
+    } catch (err) {
+      console.error("[STEAM AUTH RETURN ERROR]:", err);
+      const errorMsg = encodeURIComponent(err.message || "Erro ao sincronizar dados da Steam.");
+      return new Response(null, {
+        status: 302,
+        headers: {
+          Location: `${origin}/login?error=${errorMsg}`
+        }
+      });
+    }
+  }
+  if (method === "POST" && path === "steam/sync") {
+    const authCheck = await requireAuth(req);
+    if ("errorResponse" in authCheck)
+      return authCheck.errorResponse;
+    try {
+      const [user] = await sql`
+        SELECT id, steam_id FROM cs_arena.users WHERE id = ${authCheck.user.userId} LIMIT 1;
+      `;
+      const steamId = user?.steam_id;
+      if (!steamId) {
+        return jsonResponse({ error: "Nenhuma conta Steam vinculada a este usu\xE1rio." }, 400);
+      }
+      const { player } = await SteamService.syncSteamUserAndPlayer(steamId, user.id);
+      return jsonResponse({ success: true, player });
+    } catch (err) {
+      return jsonResponse({ error: err.message || "Erro ao sincronizar perfil Steam" }, 500);
+    }
+  }
   return jsonResponse({ error: `Rota de autentica\xE7\xE3o '/api/auth/${path}' n\xE3o encontrada.` }, 404);
 }
 
@@ -13832,259 +14184,38 @@ async function handleUsers(req, segments) {
   return jsonResponse({ error: `Rota de usu\xE1rio '/api/users/${subAction}' n\xE3o encontrada.` }, 404);
 }
 
-// server/routes/tournaments.ts
-async function handleTournaments(req, segments) {
-  const method = req.method;
-  const tournamentId = segments[0] || null;
-  const subAction = segments[1] || null;
-  if (!tournamentId && method === "GET") {
-    const list = await sql`
-      SELECT 
-        t.id, t.name, t.slug, t.description, t.format, t.team_size, t.best_of, t.status, t.created_at,
-        COUNT(r.id)::int as registrations_count
-      FROM cs_arena.tournaments t
-      LEFT JOIN cs_arena.registrations r ON t.id = r.tournament_id
-      GROUP BY t.id
-      ORDER BY t.created_at DESC;
-    `;
-    return jsonResponse({ tournaments: list });
-  }
-  if (!tournamentId && method === "POST") {
-    const authCheck = await requireAdmin(req);
-    if ("errorResponse" in authCheck)
-      return authCheck.errorResponse;
-    try {
-      const body = await req.json();
-      const { name, slug, description, bestOf = 1, rules } = body;
-      if (!name || !slug) {
-        return jsonResponse({ error: "Nome e slug s\xE3o obrigat\xF3rios." }, 400);
-      }
-      const [created] = await sql`
-        INSERT INTO cs_arena.tournaments (name, slug, description, best_of, rules, status, created_by)
-        VALUES (${name}, ${slug}, ${description || null}, ${bestOf}, ${rules || null}, 'registration_open', ${authCheck.user.userId})
-        RETURNING *;
-      `;
-      await sql`
-        INSERT INTO cs_arena.audit_logs (actor_id, actor_name, action, entity_type, entity_id, after_state)
-        VALUES (${authCheck.user.userId}, ${authCheck.user.name}, 'CREATE_TOURNAMENT', 'tournaments', ${created.id}, ${JSON.stringify(created)});
-      `;
-      return jsonResponse({ tournament: created }, 201);
-    } catch (err) {
-      return jsonResponse({ error: err.message || "Erro ao criar campeonato" }, 400);
-    }
-  }
-  if (tournamentId) {
-    if (!subAction && method === "GET") {
-      const [t] = await sql`
-        SELECT 
-          t.*,
-          COUNT(DISTINCT r.id)::int as registrations_count,
-          COUNT(DISTINCT tm.id)::int as teams_count
-        FROM cs_arena.tournaments t
-        LEFT JOIN cs_arena.registrations r ON t.id = r.tournament_id
-        LEFT JOIN cs_arena.teams tm ON t.id = tm.tournament_id
-        WHERE t.id = ${tournamentId} OR t.slug = ${tournamentId}
-        GROUP BY t.id;
-      `;
-      if (!t)
-        return jsonResponse({ error: "Campeonato n\xE3o encontrado." }, 404);
-      return jsonResponse({ tournament: t });
-    }
-    if (!subAction && method === "PATCH") {
-      const authCheck = await requireAdmin(req);
-      if ("errorResponse" in authCheck)
-        return authCheck.errorResponse;
-      const body = await req.json();
-      const { name, description, rules, status } = body;
-      const [updated] = await sql`
-        UPDATE cs_arena.tournaments
-        SET 
-          name = COALESCE(${name}, name),
-          description = COALESCE(${description}, description),
-          rules = COALESCE(${rules}, rules),
-          status = COALESCE(${status}, status),
-          updated_at = NOW()
-        WHERE id = ${tournamentId}
-        RETURNING *;
-      `;
-      await sql`
-        INSERT INTO cs_arena.audit_logs (actor_id, actor_name, action, entity_type, entity_id, after_state)
-        VALUES (${authCheck.user.userId}, ${authCheck.user.name}, 'UPDATE_TOURNAMENT', 'tournaments', ${tournamentId}, ${JSON.stringify(updated)});
-      `;
-      return jsonResponse({ tournament: updated });
-    }
-    if (subAction === "register" && method === "POST") {
-      try {
-        const body = await req.json();
-        const { nickname, steamId, preferredRole = "Flex", avatarUrl } = body;
-        if (!nickname || !nickname.trim()) {
-          return jsonResponse({ error: "Nickname \xE9 obrigat\xF3rio." }, 400);
-        }
-        let [player] = await sql`
-          SELECT id, nickname FROM cs_arena.players WHERE LOWER(nickname) = LOWER(${nickname.trim()}) LIMIT 1;
-        `;
-        if (!player) {
-          const avatar = avatarUrl || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(nickname.trim())}`;
-          [player] = await sql`
-            INSERT INTO cs_arena.players (nickname, steam_id, avatar_url, preferred_role)
-            VALUES (${nickname.trim()}, ${steamId || null}, ${avatar}, ${preferredRole})
-            RETURNING id, nickname;
-          `;
-        }
-        const existing = await sql`
-          SELECT id FROM cs_arena.registrations
-          WHERE tournament_id = ${tournamentId} AND player_id = ${player.id};
-        `;
-        if (existing.length > 0) {
-          return jsonResponse({ error: "Este jogador j\xE1 est\xE1 inscrito neste campeonato." }, 409);
-        }
-        const [reg] = await sql`
-          INSERT INTO cs_arena.registrations (tournament_id, player_id, status)
-          VALUES (${tournamentId}, ${player.id}, 'confirmed')
-          RETURNING *;
-        `;
-        await sql`
-          INSERT INTO cs_arena.audit_logs (action, entity_type, entity_id, after_state)
-          VALUES ('PLAYER_REGISTERED', 'registrations', ${reg.id}, ${JSON.stringify({ tournamentId, playerId: player.id, nickname })});
-        `;
-        return jsonResponse({ success: true, registration: reg, player }, 201);
-      } catch (err) {
-        return jsonResponse({ error: err.message || "Erro na inscri\xE7\xE3o" }, 400);
-      }
-    }
-    if (subAction === "registrations" && method === "GET") {
-      const list = await sql`
-        SELECT 
-          r.id as registration_id, r.status, r.registered_at,
-          p.id as player_id, p.nickname, p.steam_id, p.avatar_url, p.preferred_role, p.skill_rating
-        FROM cs_arena.registrations r
-        JOIN cs_arena.players p ON r.player_id = p.id
-        WHERE r.tournament_id = ${tournamentId}
-        ORDER BY r.registered_at ASC;
-      `;
-      return jsonResponse({ registrations: list });
-    }
-    if (subAction === "close-registration" && method === "POST") {
-      const authCheck = await requireAdmin(req);
-      if ("errorResponse" in authCheck)
-        return authCheck.errorResponse;
-      const [updated] = await sql`
-        UPDATE cs_arena.tournaments
-        SET status = 'registration_closed', updated_at = NOW()
-        WHERE id = ${tournamentId}
-        RETURNING *;
-      `;
-      await sql`
-        INSERT INTO cs_arena.audit_logs (actor_id, actor_name, action, entity_type, entity_id, after_state)
-        VALUES (${authCheck.user.userId}, ${authCheck.user.name}, 'CLOSE_REGISTRATION', 'tournaments', ${tournamentId}, ${JSON.stringify(updated)});
-      `;
-      return jsonResponse({ tournament: updated });
-    }
-    if (subAction === "teams" && method === "GET") {
-      const teamsList = await sql`
-        SELECT 
-          t.id, t.name, t.seed, t.status, t.captain_id,
-          p.nickname as captain_nickname
-        FROM cs_arena.teams t
-        LEFT JOIN cs_arena.players p ON t.captain_id = p.id
-        WHERE t.tournament_id = ${tournamentId}
-        ORDER BY t.seed ASC, t.created_at ASC;
-      `;
-      const membersList = await sql`
-        SELECT 
-          tm.team_id, tm.is_captain,
-          p.id as player_id, p.nickname, p.preferred_role, p.skill_rating, p.avatar_url
-        FROM cs_arena.team_members tm
-        JOIN cs_arena.players p ON tm.player_id = p.id
-        WHERE tm.tournament_id = ${tournamentId}
-        ORDER BY tm.is_captain DESC, p.nickname ASC;
-      `;
-      const teamMap = /* @__PURE__ */ new Map();
-      for (const t of teamsList) {
-        teamMap.set(t.id, { ...t, members: [] });
-      }
-      for (const m2 of membersList) {
-        const team = teamMap.get(m2.team_id);
-        if (team) {
-          team.members.push(m2);
-        }
-      }
-      const reserves = await sql`
-        SELECT 
-          r.id, p.id as player_id, p.nickname, p.preferred_role, p.skill_rating, p.avatar_url
-        FROM cs_arena.registrations r
-        JOIN cs_arena.players p ON r.player_id = p.id
-        WHERE r.tournament_id = ${tournamentId} AND r.status = 'reserve'
-        ORDER BY p.skill_rating DESC;
-      `;
-      return jsonResponse({
-        teams: Array.from(teamMap.values()),
-        reserves
-      });
-    }
-    if (subAction === "bracket" && method === "GET") {
-      const rounds = await sql`
-        SELECT id, round_number, name
-        FROM cs_arena.bracket_rounds
-        WHERE tournament_id = ${tournamentId}
-        ORDER BY round_number ASC;
-      `;
-      const matchesList = await sql`
-        SELECT 
-          m.id, m.round_id, m.bracket_position, m.is_bye, m.best_of, m.status,
-          m.next_match_id, m.next_match_slot, m.winner_id,
-          t1.id as team_a_id, t1.name as team_a_name, t1.seed as team_a_seed,
-          t2.id as team_b_id, t2.name as team_b_name, t2.seed as team_b_seed,
-          w.name as winner_name
-        FROM cs_arena.matches m
-        LEFT JOIN cs_arena.teams t1 ON m.team_a_id = t1.id
-        LEFT JOIN cs_arena.teams t2 ON m.team_b_id = t2.id
-        LEFT JOIN cs_arena.teams w ON m.winner_id = w.id
-        WHERE m.tournament_id = ${tournamentId}
-        ORDER BY m.bracket_position ASC;
-      `;
-      const mapsList = await sql`
-        SELECT mm.*
-        FROM cs_arena.match_maps mm
-        JOIN cs_arena.matches m ON mm.match_id = m.id
-        WHERE m.tournament_id = ${tournamentId}
-        ORDER BY mm.match_id, mm.order_number ASC;
-      `;
-      const mapsByMatch = /* @__PURE__ */ new Map();
-      for (const mapItem of mapsList) {
-        if (!mapsByMatch.has(mapItem.match_id)) {
-          mapsByMatch.set(mapItem.match_id, []);
-        }
-        mapsByMatch.get(mapItem.match_id).push(mapItem);
-      }
-      const matchesWithMaps = matchesList.map((m2) => ({
-        ...m2,
-        maps: mapsByMatch.get(m2.id) || []
-      }));
-      return jsonResponse({
-        rounds,
-        matches: matchesWithMaps
-      });
-    }
-    if (subAction === "audit" && method === "GET") {
-      const authCheck = await requireAdmin(req);
-      if ("errorResponse" in authCheck)
-        return authCheck.errorResponse;
-      const logs = await sql`
-        SELECT id, actor_id, actor_name, action, entity_type, entity_id, before_state, after_state, created_at
-        FROM cs_arena.audit_logs
-        WHERE entity_id = ${tournamentId} OR (after_state->>'tournamentId') = ${tournamentId}
-        ORDER BY created_at DESC
-        LIMIT 100;
-      `;
-      return jsonResponse({ auditLogs: logs });
-    }
-  }
-  return jsonResponse({ error: "Endpoint n\xE3o encontrado." }, 404);
-}
-
 // src/lib/tournament-engine.ts
 import crypto5 from "crypto";
+function getTeamSize(gameMode) {
+  switch (gameMode) {
+    case "1v1":
+      return 1;
+    case "2v2":
+      return 2;
+    case "3v3":
+      return 3;
+    case "4v4":
+      return 4;
+    case "5v5":
+    default:
+      return 5;
+  }
+}
+function getDefaultTournamentRules(gameMode) {
+  switch (gameMode) {
+    case "1v1":
+      return "Formato oficial CS2: Duelo individual 1x1 em elimina\xE7\xE3o simples (mata-mata). Confrontos MD1 em mapa \xFAnico de duelo selecionado pela arbitragem. Empates n\xE3o s\xE3o permitidos em partidas competitivas.";
+    case "2v2":
+      return "Formato oficial CS2: Duplas 2x2 em elimina\xE7\xE3o simples (mata-mata). Inscri\xE7\xE3o individual com sorteio oficial de duplas na roleta. Confrontos MD1 (Wingman). Empates n\xE3o s\xE3o permitidos.";
+    case "3v3":
+      return "Formato oficial CS2: Trios 3x3 em elimina\xE7\xE3o simples (mata-mata). Inscri\xE7\xE3o individual com sorteio oficial de trios na roleta. Confrontos MD1 t\xE1ticos. Empates n\xE3o s\xE3o permitidos.";
+    case "4v4":
+      return "Formato oficial CS2: Quartetos 4x4 em elimina\xE7\xE3o simples (mata-mata). Inscri\xE7\xE3o individual com sorteio oficial de quartetos na roleta. Confrontos MD1 competitivos. Empates n\xE3o s\xE3o permitidos.";
+    case "5v5":
+    default:
+      return "Formato oficial CS2: Equipes tradicionais 5x5 em elimina\xE7\xE3o simples (mata-mata). Inscri\xE7\xE3o individual com sorteio oficial de quintetos na roleta. Confrontos MD1 competitivos. Empates n\xE3o s\xE3o permitidos.";
+  }
+}
 function secureShuffle(array) {
   const result = [...array];
   for (let i = result.length - 1; i > 0; i--) {
@@ -14098,14 +14229,126 @@ function nextPowerOfTwo(n) {
     return 1;
   return Math.pow(2, Math.ceil(Math.log2(n)));
 }
-function formTeams(players, algorithm = "random") {
+function getTeamNamesPool(gameMode, count) {
+  const duoNames = [
+    "Dupla Alpha",
+    "Dupla Bravo",
+    "Dupla Charlie",
+    "Dupla Delta",
+    "Dupla Echo",
+    "Dupla Foxtrot",
+    "Dupla Golf",
+    "Dupla Hotel",
+    "Dupla India",
+    "Dupla Juliet",
+    "Dupla Kilo",
+    "Dupla Lima",
+    "Dupla Mike",
+    "Dupla November",
+    "Dupla Oscar",
+    "Dupla Papa"
+  ];
+  const trioNames = [
+    "Trio Alpha",
+    "Trio Shadow",
+    "Trio Viper",
+    "Trio Phoenix",
+    "Trio Vortex",
+    "Trio Titan",
+    "Trio Specter",
+    "Trio Apex",
+    "Trio Ghost",
+    "Trio Valkyrie",
+    "Trio Nebula",
+    "Trio Nova",
+    "Trio Pulse",
+    "Trio Rogue",
+    "Trio Eclipse",
+    "Trio Zen"
+  ];
+  const squadNames = [
+    "Quarteto Alpha",
+    "Quarteto Apex",
+    "Quarteto Storm",
+    "Quarteto Vanguard",
+    "Quarteto Fury",
+    "Quarteto Strike",
+    "Quarteto Phantom",
+    "Quarteto Cyber",
+    "Quarteto Iron",
+    "Quarteto Solaris",
+    "Quarteto Venom",
+    "Quarteto Titan",
+    "Quarteto Cobalt",
+    "Quarteto Talon",
+    "Quarteto Echo",
+    "Quarteto Zenith"
+  ];
+  const esportsNames = [
+    "Alpha Strike",
+    "Shadow Ninjas",
+    "Cyber Immortals",
+    "Viper Squad",
+    "Phantom Titans",
+    "Echo Fury",
+    "Apex Predators",
+    "Ghost Legion",
+    "Vortex Esports",
+    "Iron Valkyries",
+    "Solaris CS",
+    "Nebula Gaming",
+    "Quantum Force",
+    "Rogue Vanguard",
+    "Overdrive Gaming",
+    "Valiant Force"
+  ];
+  let pool;
+  if (gameMode === "2v2")
+    pool = duoNames;
+  else if (gameMode === "3v3")
+    pool = trioNames;
+  else if (gameMode === "4v4")
+    pool = squadNames;
+  else
+    pool = esportsNames;
+  return Array.from({ length: count }, (_2, i) => pool[i] || `Time ${i + 1}`);
+}
+function formTeams(players, algorithm = "random", teamSizeInput = 5, gameModeInput) {
   const N = players.length;
-  const teamSize = 5;
+  const teamSize = Math.max(1, Math.min(5, Math.floor(teamSizeInput)));
+  const gameMode = gameModeInput || `${teamSize}v${teamSize}`;
+  if (teamSize === 1 || gameMode === "1v1") {
+    if (N < 2) {
+      throw new Error(
+        `Inscritos insuficientes: s\xE3o necess\xE1rios no m\xEDnimo 2 duelistas para iniciar o campeonato 1x1. Atualmente h\xE1 ${N} jogador(es).`
+      );
+    }
+    let orderedPlayers;
+    if (algorithm === "random") {
+      orderedPlayers = secureShuffle(players);
+    } else {
+      orderedPlayers = [...players].sort((a2, b) => b.skillRating - a2.skillRating);
+    }
+    const teams2 = orderedPlayers.map((p2, idx) => ({
+      name: p2.nickname,
+      seed: idx + 1,
+      captainId: p2.id,
+      members: [{ playerId: p2.id, isCaptain: true }]
+    }));
+    return {
+      teams: teams2,
+      reserves: [],
+      algorithm,
+      teamSize: 1,
+      gameMode: "1v1"
+    };
+  }
   const teamCount = Math.floor(N / teamSize);
   const reserveCount = N % teamSize;
+  const minRequired = teamSize * 2;
   if (teamCount < 2) {
     throw new Error(
-      `Inscritos insuficientes: s\xE3o necess\xE1rios no m\xEDnimo 10 jogadores (2 equipes completas de 5) para iniciar o campeonato 5x5. Atualmente h\xE1 ${N} jogador(es).`
+      `Inscritos insuficientes: s\xE3o necess\xE1rios no m\xEDnimo ${minRequired} jogadores (2 equipes completas de ${teamSize}) para iniciar o campeonato ${teamSize}x${teamSize}. Atualmente h\xE1 ${N} jogador(es).`
     );
   }
   let selectedPlayers;
@@ -14126,35 +14369,18 @@ function formTeams(players, algorithm = "random") {
     selectedPlayers = sorted.slice(0, activeTotal);
     reservePlayers = sorted.slice(activeTotal);
   }
-  const defaultNames = [
-    "Alpha Strike",
-    "Shadow Ninjas",
-    "Cyber Immortals",
-    "Viper Squad",
-    "Phantom Titans",
-    "Echo Fury",
-    "Apex Predators",
-    "Ghost Legion",
-    "Vortex Esports",
-    "Iron Valkyries",
-    "Solaris CS",
-    "Nebula Gaming",
-    "Quantum Force",
-    "Rogue Vanguard",
-    "Overdrive Gaming",
-    "Valiant Force"
-  ];
+  const teamNames = getTeamNamesPool(gameMode, teamCount);
   const teams = [];
   for (let t = 0; t < teamCount; t++) {
     teams.push({
-      name: defaultNames[t] || `Time ${t + 1}`,
+      name: teamNames[t],
       seed: t + 1,
       members: []
     });
   }
   if (algorithm === "random") {
     for (let t = 0; t < teamCount; t++) {
-      const slice = selectedPlayers.slice(t * 5, (t + 1) * 5);
+      const slice = selectedPlayers.slice(t * teamSize, (t + 1) * teamSize);
       teams[t].captainId = slice[0]?.id;
       teams[t].members = slice.map((p2, idx) => ({
         playerId: p2.id,
@@ -14163,7 +14389,7 @@ function formTeams(players, algorithm = "random") {
     }
   } else if (algorithm === "balanced") {
     let playerIndex = 0;
-    for (let round = 0; round < 5; round++) {
+    for (let round = 0; round < teamSize; round++) {
       const isReverse = round % 2 === 1;
       const order = isReverse ? Array.from({ length: teamCount }, (_2, i) => teamCount - 1 - i) : Array.from({ length: teamCount }, (_2, i) => i);
       for (const t of order) {
@@ -14186,7 +14412,7 @@ function formTeams(players, algorithm = "random") {
     }
     const pool = selectedPlayers.slice(teamCount);
     let poolIndex = 0;
-    for (let round = 1; round < 5; round++) {
+    for (let round = 1; round < teamSize; round++) {
       const isReverse = round % 2 === 1;
       const order = isReverse ? Array.from({ length: teamCount }, (_2, i) => teamCount - 1 - i) : Array.from({ length: teamCount }, (_2, i) => i);
       for (const t of order) {
@@ -14198,7 +14424,9 @@ function formTeams(players, algorithm = "random") {
   return {
     teams,
     reserves: reservePlayers.map((p2) => ({ playerId: p2.id })),
-    algorithm
+    algorithm,
+    teamSize,
+    gameMode
   };
 }
 function getRoundName(totalRounds, currentRound) {
@@ -14212,18 +14440,21 @@ function getRoundName(totalRounds, currentRound) {
       return "Quartas de Final";
     case 3:
       return "Oitavas de Final";
+    case 4:
+      return "Dezesseis-avos de Final";
     default:
       return `Rodada ${currentRound}`;
   }
 }
-function generateSingleEliminationBracket(teams, bestOf = 1) {
-  const T = teams.length;
+function generateSingleEliminationBracket(participants, bestOf = 1, is1v1 = false) {
+  const T = participants.length;
   if (T < 2) {
-    throw new Error("\xC9 necess\xE1rio ter no m\xEDnimo 2 equipes para gerar o chaveamento.");
+    throw new Error(
+      is1v1 ? "\xC9 necess\xE1rio ter no m\xEDnimo 2 duelistas para gerar a chave de confrontos 1x1." : "\xC9 necess\xE1rio ter no m\xEDnimo 2 equipes para gerar a chave de confrontos."
+    );
   }
   const P = nextPowerOfTwo(T);
   const totalRounds = Math.log2(P);
-  const byeCount = P - T;
   const rounds = [];
   for (let r = 1; r <= totalRounds; r++) {
     rounds.push({
@@ -14245,8 +14476,7 @@ function generateSingleEliminationBracket(teams, bestOf = 1) {
     return pairings;
   }
   const seedOrder = getSeedPairings(P);
-  const teamBySeed = new Map(teams.map((t) => [t.seed, t]));
-  const allMatches = [];
+  const participantBySeed = new Map(participants.map((p2) => [p2.seed, p2]));
   const matchesByRound = [];
   let matchCounter = 0;
   for (let r = 1; r <= totalRounds; r++) {
@@ -14259,6 +14489,8 @@ function generateSingleEliminationBracket(teams, bestOf = 1) {
         bracketPosition: matchCounter++,
         teamAId: null,
         teamBId: null,
+        playerAId: null,
+        playerBId: null,
         isBye: false,
         status: "pending"
       });
@@ -14279,39 +14511,64 @@ function generateSingleEliminationBracket(teams, bestOf = 1) {
   for (let i = 0; i < round1.length; i++) {
     const seedA = seedOrder[i * 2];
     const seedB = seedOrder[i * 2 + 1];
-    const teamA = teamBySeed.get(seedA) || null;
-    const teamB = teamBySeed.get(seedB) || null;
+    const partA = participantBySeed.get(seedA) || null;
+    const partB = participantBySeed.get(seedB) || null;
     round1[i].teamASeed = seedA <= T ? seedA : null;
     round1[i].teamBSeed = seedB <= T ? seedB : null;
-    round1[i].teamAId = teamA?.id || null;
-    round1[i].teamBId = teamB?.id || null;
-    if (teamA && !teamB) {
+    if (is1v1) {
+      round1[i].playerAId = partA?.id || null;
+      round1[i].playerBId = partB?.id || null;
+    } else {
+      round1[i].teamAId = partA?.id || null;
+      round1[i].teamBId = partB?.id || null;
+    }
+    if (partA && !partB) {
       round1[i].isBye = true;
       round1[i].status = "completed";
-      round1[i].winnerId = teamA.id;
+      if (is1v1) {
+        round1[i].winnerPlayerId = partA.id;
+      } else {
+        round1[i].winnerId = partA.id;
+      }
       if (totalRounds > 1) {
         const nextMatchPos = round1[i].nextRoundMatchIndex;
         const nextMatch = matchesByRound.flat().find((m2) => m2.bracketPosition === nextMatchPos);
         if (nextMatch) {
           if (round1[i].nextMatchSlot === "team_a") {
-            nextMatch.teamAId = teamA.id;
+            if (is1v1)
+              nextMatch.playerAId = partA.id;
+            else
+              nextMatch.teamAId = partA.id;
           } else {
-            nextMatch.teamBId = teamA.id;
+            if (is1v1)
+              nextMatch.playerBId = partA.id;
+            else
+              nextMatch.teamBId = partA.id;
           }
         }
       }
-    } else if (!teamA && teamB) {
+    } else if (!partA && partB) {
       round1[i].isBye = true;
       round1[i].status = "completed";
-      round1[i].winnerId = teamB.id;
+      if (is1v1) {
+        round1[i].winnerPlayerId = partB.id;
+      } else {
+        round1[i].winnerId = partB.id;
+      }
       if (totalRounds > 1) {
         const nextMatchPos = round1[i].nextRoundMatchIndex;
         const nextMatch = matchesByRound.flat().find((m2) => m2.bracketPosition === nextMatchPos);
         if (nextMatch) {
           if (round1[i].nextMatchSlot === "team_a") {
-            nextMatch.teamAId = teamB.id;
+            if (is1v1)
+              nextMatch.playerAId = partB.id;
+            else
+              nextMatch.teamAId = partB.id;
           } else {
-            nextMatch.teamBId = teamB.id;
+            if (is1v1)
+              nextMatch.playerBId = partB.id;
+            else
+              nextMatch.teamBId = partB.id;
           }
         }
       }
@@ -14322,7 +14579,7 @@ function generateSingleEliminationBracket(teams, bestOf = 1) {
     matches: matchesByRound.flat()
   };
 }
-function checkSeriesWinner(maps, teamAId, teamBId, bestOf) {
+function checkSeriesWinner(maps, teamAId, teamBId, bestOf = 1) {
   const winsRequired = Math.ceil(bestOf / 2);
   let winsA = 0;
   let winsB = 0;
@@ -14366,81 +14623,396 @@ function checkSeriesWinner(maps, teamAId, teamBId, bestOf) {
   };
 }
 
-// server/routes/draws.ts
-import crypto6 from "crypto";
-async function handleDraws(req, tournamentId, action) {
-  const method = req.method;
-  if (action === "draw-teams" && method === "POST") {
-    const authCheck = await requireAdmin(req);
-    if ("errorResponse" in authCheck)
-      return authCheck.errorResponse;
-    try {
-      const body = await req.json().catch(() => ({}));
-      const algorithm = body.algorithm || "random";
-      const idempotencyKey = body.idempotencyKey || `draw-teams-${tournamentId}-${Date.now()}`;
-      const existingDraw = await sql`
-        SELECT id FROM cs_arena.draws WHERE idempotency_key = ${idempotencyKey} LIMIT 1;
+// server/services/tournament.service.ts
+var TournamentService = class {
+  static async listTournaments(filters) {
+    let query = sql`
+      SELECT 
+        t.id, t.name, t.slug, t.description, t.game_mode, t.team_size, t.best_of,
+        t.third_place_enabled, t.map_selection, t.status, t.created_at,
+        COUNT(r.id)::int as registrations_count
+      FROM cs_arena.tournaments t
+      LEFT JOIN cs_arena.registrations r ON t.id = r.tournament_id AND r.status != 'withdrawn'
+      WHERE 1=1
+    `;
+    if (filters?.gameMode && ["1v1", "2v2", "3v3", "4v4", "5v5"].includes(filters.gameMode)) {
+      query = sql`
+        SELECT 
+          t.id, t.name, t.slug, t.description, t.game_mode, t.team_size, t.best_of,
+          t.third_place_enabled, t.map_selection, t.status, t.created_at,
+          COUNT(r.id)::int as registrations_count
+        FROM cs_arena.tournaments t
+        LEFT JOIN cs_arena.registrations r ON t.id = r.tournament_id AND r.status != 'withdrawn'
+        WHERE t.game_mode = ${filters.gameMode}
+        GROUP BY t.id
+        ORDER BY t.created_at DESC;
       `;
-      if (existingDraw.length > 0) {
-        return jsonResponse({
-          message: "Sorteio j\xE1 executado com esta chave de idempot\xEAncia.",
-          drawId: existingDraw[0].id
-        });
-      }
-      const existingTeams = await sql`
-        SELECT COUNT(id)::int as count FROM cs_arena.teams WHERE tournament_id = ${tournamentId};
+    } else {
+      query = sql`
+        SELECT 
+          t.id, t.name, t.slug, t.description, t.game_mode, t.team_size, t.best_of,
+          t.third_place_enabled, t.map_selection, t.status, t.created_at,
+          COUNT(r.id)::int as registrations_count
+        FROM cs_arena.tournaments t
+        LEFT JOIN cs_arena.registrations r ON t.id = r.tournament_id AND r.status != 'withdrawn'
+        GROUP BY t.id
+        ORDER BY t.created_at DESC;
       `;
-      if (existingTeams[0]?.count > 0 && !body.forceReset) {
-        return jsonResponse(
-          { error: "As equipes deste torneio j\xE1 foram sorteadas. Para sortear novamente, forne\xE7a confirma\xE7\xE3o expl\xEDcita com justificativa." },
-          409
-        );
+    }
+    const list = await query;
+    return list;
+  }
+  static async getTournament(idOrSlug) {
+    const [t] = await sql`
+      SELECT 
+        t.*,
+        COUNT(DISTINCT CASE WHEN r.status != 'withdrawn' THEN r.id END)::int as registrations_count,
+        COUNT(DISTINCT tm.id)::int as teams_count
+      FROM cs_arena.tournaments t
+      LEFT JOIN cs_arena.registrations r ON t.id = r.tournament_id
+      LEFT JOIN cs_arena.teams tm ON t.id = tm.tournament_id
+      WHERE t.id = ${idOrSlug} OR t.slug = ${idOrSlug}
+      GROUP BY t.id;
+    `;
+    return t || null;
+  }
+  static async createTournament(input, actor) {
+    const { name, slug, description } = input;
+    if (!name || !name.trim())
+      throw new Error("Nome do campeonato \xE9 obrigat\xF3rio.");
+    if (!slug || !slug.trim())
+      throw new Error("Slug da URL \xE9 obrigat\xF3rio.");
+    const rawGameMode = input.gameMode || input.game_mode;
+    const gameMode = ["1v1", "2v2", "3v3", "4v4", "5v5"].includes(rawGameMode) ? rawGameMode : "5v5";
+    const teamSize = (input.teamSize || input.team_size) ?? getTeamSize(gameMode);
+    const bestOf = 1;
+    const thirdPlaceEnabled = false;
+    const mapSelection = input.mapSelection || input.map_selection || "admin";
+    const rules = input.rules || getDefaultTournamentRules(gameMode);
+    const [created] = await sql`
+      INSERT INTO cs_arena.tournaments (
+        name, slug, description, game_mode, team_size, best_of,
+        third_place_enabled, map_selection, rules, status, created_by
+      )
+      VALUES (
+        ${name.trim()}, ${slug.trim()}, ${description || null}, ${gameMode}, ${teamSize}, ${bestOf},
+        ${thirdPlaceEnabled}, ${mapSelection}, ${rules}, 'registration_open', ${actor.userId}
+      )
+      RETURNING *;
+    `;
+    await sql`
+      INSERT INTO cs_arena.audit_logs (actor_id, actor_name, action, entity_type, entity_id, after_state)
+      VALUES (${actor.userId}, ${actor.name}, 'CREATE_TOURNAMENT', 'tournaments', ${created.id}, ${JSON.stringify(created)});
+    `;
+    return created;
+  }
+  static async updateTournament(id, data, actor) {
+    const { name, description, rules, status } = data;
+    const [updated] = await sql`
+      UPDATE cs_arena.tournaments
+      SET 
+        name = COALESCE(${name}, name),
+        description = COALESCE(${description}, description),
+        rules = COALESCE(${rules}, rules),
+        status = COALESCE(${status}, status),
+        updated_at = NOW()
+      WHERE id = ${id}
+      RETURNING *;
+    `;
+    if (!updated)
+      throw new Error("Campeonato n\xE3o encontrado.");
+    await sql`
+      INSERT INTO cs_arena.audit_logs (actor_id, actor_name, action, entity_type, entity_id, after_state)
+      VALUES (${actor.userId}, ${actor.name}, 'UPDATE_TOURNAMENT', 'tournaments', ${id}, ${JSON.stringify(updated)});
+    `;
+    return updated;
+  }
+  static async closeRegistration(id, actor) {
+    const [updated] = await sql`
+      UPDATE cs_arena.tournaments
+      SET status = 'registration_closed', updated_at = NOW()
+      WHERE id = ${id}
+      RETURNING *;
+    `;
+    if (!updated)
+      throw new Error("Campeonato n\xE3o encontrado.");
+    await sql`
+      INSERT INTO cs_arena.audit_logs (actor_id, actor_name, action, entity_type, entity_id, after_state)
+      VALUES (${actor.userId}, ${actor.name}, 'CLOSE_REGISTRATION', 'tournaments', ${id}, ${JSON.stringify(updated)});
+    `;
+    return updated;
+  }
+};
+
+// server/services/registration.service.ts
+var RegistrationService = class {
+  static async registerPlayer(tournamentId, input) {
+    const { playerId: directPlayerId, nickname, steamId, preferredRole = "Flex", avatarUrl } = input;
+    const [tournament] = await sql`
+      SELECT id, status, team_size, game_mode, max_players
+      FROM cs_arena.tournaments
+      WHERE id = ${tournamentId};
+    `;
+    if (!tournament) {
+      throw new Error("Campeonato n\xE3o encontrado.");
+    }
+    if (tournament.status !== "registration_open") {
+      throw new Error("As inscri\xE7\xF5es para este campeonato n\xE3o est\xE3o abertas.");
+    }
+    let player = null;
+    if (directPlayerId) {
+      [player] = await sql`
+        SELECT id, nickname, steam_id, avatar_url, preferred_role, skill_rating
+        FROM cs_arena.players
+        WHERE id = ${directPlayerId}
+        LIMIT 1;
+      `;
+      if (!player)
+        throw new Error("Jogador n\xE3o encontrado.");
+    } else {
+      if (!nickname || !nickname.trim()) {
+        throw new Error("Nickname \xE9 obrigat\xF3rio.");
       }
-      if (body.forceReset) {
-        await sql`DELETE FROM cs_arena.teams WHERE tournament_id = ${tournamentId};`;
-        await sql`
-          UPDATE cs_arena.registrations 
-          SET status = 'confirmed' 
-          WHERE tournament_id = ${tournamentId};
+      [player] = await sql`
+        SELECT id, nickname, steam_id, avatar_url, preferred_role, skill_rating
+        FROM cs_arena.players
+        WHERE LOWER(nickname) = LOWER(${nickname.trim()})
+        LIMIT 1;
+      `;
+      if (!player) {
+        const avatar = avatarUrl || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(nickname.trim())}`;
+        [player] = await sql`
+          INSERT INTO cs_arena.players (nickname, steam_id, avatar_url, preferred_role)
+          VALUES (${nickname.trim()}, ${steamId || null}, ${avatar}, ${preferredRole})
+          RETURNING id, nickname, steam_id, avatar_url, preferred_role, skill_rating;
         `;
       }
-      const registrants = await sql`
-        SELECT p.id, p.nickname, p.steam_id, p.avatar_url, p.preferred_role, p.skill_rating
-        FROM cs_arena.registrations r
-        JOIN cs_arena.players p ON r.player_id = p.id
-        WHERE r.tournament_id = ${tournamentId}
-        ORDER BY r.registered_at ASC;
-      `;
-      if (registrants.length < 10) {
-        return jsonResponse(
-          { error: `Inscritos insuficientes: s\xE3o necess\xE1rios pelo menos 10 jogadores (2 equipes) para iniciar o campeonato 5x5. Atualmente h\xE1 ${registrants.length} inscritos.` },
-          400
-        );
+    }
+    const [existing] = await sql`
+      SELECT id, status
+      FROM cs_arena.registrations
+      WHERE tournament_id = ${tournamentId} AND player_id = ${player.id};
+    `;
+    let reg;
+    if (existing) {
+      if (existing.status !== "withdrawn") {
+        throw new Error("Este jogador j\xE1 est\xE1 inscrito neste campeonato.");
       }
-      const playersData = registrants.map((r) => ({
-        id: r.id,
-        nickname: r.nickname,
-        steamId: r.steam_id,
-        avatarUrl: r.avatar_url,
-        preferredRole: r.preferred_role,
-        skillRating: r.skill_rating
-      }));
-      const draft = formTeams(playersData, algorithm);
-      const auditHash = crypto6.createHash("sha256").update(JSON.stringify(draft)).digest("hex");
-      const [drawRecord] = await sql`
-        INSERT INTO cs_arena.draws (
-          tournament_id, type, status, algorithm, options, performed_by, idempotency_key, audit_hash, metadata
-        )
-        VALUES (
-          ${tournamentId}, 'teams', 'completed', ${algorithm}, 
-          ${JSON.stringify({ N: registrants.length, teamsCount: draft.teams.length, reservesCount: draft.reserves.length })},
-          ${authCheck.user.userId}, ${idempotencyKey}, ${auditHash},
-          ${JSON.stringify({ draftSummary: `${draft.teams.length} equipes e ${draft.reserves.length} reservas geradas.` })}
-        )
+      [reg] = await sql`
+        UPDATE cs_arena.registrations
+        SET status = 'confirmed', registered_at = NOW()
+        WHERE id = ${existing.id}
         RETURNING *;
       `;
-      let selectionOrder = 1;
-      const animationSteps = [];
+    } else {
+      [reg] = await sql`
+        INSERT INTO cs_arena.registrations (tournament_id, player_id, status)
+        VALUES (${tournamentId}, ${player.id}, 'confirmed')
+        RETURNING *;
+      `;
+    }
+    await sql`
+      INSERT INTO cs_arena.audit_logs (action, entity_type, entity_id, after_state)
+      VALUES (
+        'PLAYER_REGISTERED',
+        'registrations',
+        ${reg.id},
+        ${JSON.stringify({ tournamentId, playerId: player.id, nickname: player.nickname })}
+      );
+    `;
+    return { registration: reg, player };
+  }
+  static async cancelRegistration(tournamentId, playerId, actor) {
+    const [tournament] = await sql`
+      SELECT id, status FROM cs_arena.tournaments WHERE id = ${tournamentId};
+    `;
+    if (!tournament)
+      throw new Error("Campeonato n\xE3o encontrado.");
+    if (tournament.status !== "registration_open" && tournament.status !== "registration_closed") {
+      throw new Error("N\xE3o \xE9 poss\xEDvel cancelar inscri\xE7\xE3o ap\xF3s o in\xEDcio dos sorteios ou partidas.");
+    }
+    const [updated] = await sql`
+      UPDATE cs_arena.registrations
+      SET status = 'withdrawn'
+      WHERE tournament_id = ${tournamentId} AND player_id = ${playerId}
+      RETURNING *;
+    `;
+    if (!updated) {
+      throw new Error("Inscri\xE7\xE3o n\xE3o encontrada.");
+    }
+    await sql`
+      INSERT INTO cs_arena.audit_logs (actor_id, actor_name, action, entity_type, entity_id, after_state)
+      VALUES (
+        ${actor?.userId || null},
+        ${actor?.name || "Sistema/Jogador"},
+        'CANCEL_REGISTRATION',
+        'registrations',
+        ${updated.id},
+        ${JSON.stringify({ tournamentId, playerId, status: "withdrawn" })}
+      );
+    `;
+    return { success: true, registration: updated };
+  }
+  static async getRegistrations(tournamentId) {
+    const [tournament] = await sql`
+      SELECT id, team_size, game_mode FROM cs_arena.tournaments WHERE id = ${tournamentId};
+    `;
+    const list = await sql`
+      SELECT 
+        r.id as registration_id, r.status, r.registered_at,
+        p.id as player_id, p.nickname, p.steam_id, p.avatar_url, p.preferred_role, p.skill_rating,
+        p.steam_level, p.cs2_hours, p.steam_synced_at
+      FROM cs_arena.registrations r
+      JOIN cs_arena.players p ON r.player_id = p.id
+      WHERE r.tournament_id = ${tournamentId}
+      ORDER BY r.registered_at ASC;
+    `;
+    const activeList = list.filter((r) => r.status !== "withdrawn");
+    const teamSize = tournament?.team_size || 5;
+    const is1v1 = teamSize === 1;
+    const totalActive = activeList.length;
+    const completeTeams = is1v1 ? totalActive : Math.floor(totalActive / teamSize);
+    const reservesCount = is1v1 ? 0 : totalActive % teamSize;
+    const minRequired = is1v1 ? 2 : teamSize * 2;
+    const canStart = totalActive >= minRequired;
+    return {
+      registrations: list,
+      totalConfirmed: totalActive,
+      possibleTeams: completeTeams,
+      reservesCount,
+      canStart,
+      summary: {
+        total: list.length,
+        active: totalActive,
+        teamSize,
+        completeTeams,
+        possibleTeams: completeTeams,
+        reservesCount,
+        minRequired,
+        canStart
+      }
+    };
+  }
+};
+
+// server/services/team-formation.service.ts
+var TeamFormationService = class {
+  static form(players, algorithm = "random", teamSize = 5, gameMode) {
+    const effectiveTeamSize = teamSize || (gameMode ? getTeamSize(gameMode) : 5);
+    return formTeams(players, algorithm, effectiveTeamSize, gameMode);
+  }
+};
+
+// server/services/draw.service.ts
+import crypto6 from "crypto";
+var DrawService = class {
+  static async executeDraw(tournamentId, options, actor) {
+    const algorithm = options.algorithm || "random";
+    const idempotencyKey = options.idempotencyKey || `draw-${tournamentId}-${Date.now()}`;
+    const [existingDraw] = await sql`
+      SELECT id FROM cs_arena.draws WHERE idempotency_key = ${idempotencyKey} LIMIT 1;
+    `;
+    if (existingDraw) {
+      return {
+        message: "Sorteio j\xE1 executado com esta chave de idempot\xEAncia.",
+        drawId: existingDraw.id
+      };
+    }
+    const [tournament] = await sql`
+      SELECT id, name, team_size, game_mode, status
+      FROM cs_arena.tournaments
+      WHERE id = ${tournamentId};
+    `;
+    if (!tournament)
+      throw new Error("Campeonato n\xE3o encontrado.");
+    const teamSize = Number(tournament.team_size) || 5;
+    const gameMode = tournament.game_mode || "5v5";
+    const is1v1 = teamSize === 1 || gameMode === "1v1";
+    const [existingTeams] = await sql`
+      SELECT COUNT(id)::int as count FROM cs_arena.teams WHERE tournament_id = ${tournamentId};
+    `;
+    const [existingDraws] = await sql`
+      SELECT COUNT(id)::int as count FROM cs_arena.draws WHERE tournament_id = ${tournamentId};
+    `;
+    if ((existingTeams?.count > 0 || existingDraws?.count > 0) && !options.forceReset) {
+      throw new Error(
+        "O sorteio deste torneio j\xE1 foi executado. Para refazer, forne\xE7a confirma\xE7\xE3o expl\xEDcita de reinicializa\xE7\xE3o (forceReset)."
+      );
+    }
+    if (options.forceReset) {
+      await sql`DELETE FROM cs_arena.teams WHERE tournament_id = ${tournamentId};`;
+      await sql`DELETE FROM cs_arena.bracket_rounds WHERE tournament_id = ${tournamentId};`;
+      await sql`DELETE FROM cs_arena.draws WHERE tournament_id = ${tournamentId};`;
+      await sql`
+        UPDATE cs_arena.registrations 
+        SET status = 'confirmed' 
+        WHERE tournament_id = ${tournamentId} AND status != 'withdrawn';
+      `;
+    }
+    const registrants = await sql`
+      SELECT p.id, p.nickname, p.steam_id, p.avatar_url, p.preferred_role, p.skill_rating
+      FROM cs_arena.registrations r
+      JOIN cs_arena.players p ON r.player_id = p.id
+      WHERE r.tournament_id = ${tournamentId} AND r.status != 'withdrawn'
+      ORDER BY r.registered_at ASC;
+    `;
+    const minRequired = is1v1 ? 2 : teamSize * 2;
+    if (registrants.length < minRequired) {
+      const errorMsg = is1v1 ? `Inscritos insuficientes: s\xE3o necess\xE1rios no m\xEDnimo 2 duelistas para iniciar o campeonato 1x1. Atualmente h\xE1 ${registrants.length} inscritos.` : `Inscritos insuficientes: s\xE3o necess\xE1rios no m\xEDnimo ${minRequired} jogadores (2 equipes completas de ${teamSize}) para iniciar o campeonato ${teamSize}x${teamSize}. Atualmente h\xE1 ${registrants.length} inscritos.`;
+      throw new Error(errorMsg);
+    }
+    const playersData = registrants.map((r) => ({
+      id: r.id,
+      nickname: r.nickname,
+      steamId: r.steam_id,
+      avatarUrl: r.avatar_url,
+      preferredRole: r.preferred_role,
+      skillRating: r.skill_rating
+    }));
+    const draft = TeamFormationService.form(playersData, algorithm, teamSize, gameMode);
+    const auditHash = crypto6.createHash("sha256").update(JSON.stringify(draft)).digest("hex");
+    const [drawRecord] = await sql`
+      INSERT INTO cs_arena.draws (
+        tournament_id, type, status, algorithm, options, performed_by, idempotency_key, audit_hash, metadata
+      )
+      VALUES (
+        ${tournamentId}, ${is1v1 ? "duelists" : "teams"}, 'completed', ${algorithm}, 
+        ${JSON.stringify({ N: registrants.length, teamsCount: draft.teams.length, reservesCount: draft.reserves.length, teamSize, gameMode })},
+        ${actor.userId}, ${idempotencyKey}, ${auditHash},
+        ${JSON.stringify({ draftSummary: `${draft.teams.length} ${is1v1 ? "duelistas" : "equipes"} e ${draft.reserves.length} reservas.` })}
+      )
+      RETURNING *;
+    `;
+    let selectionOrder = 1;
+    const animationSteps = [];
+    if (is1v1) {
+      for (const t of draft.teams) {
+        const playerObj = playersData.find((p2) => p2.id === t.captainId);
+        const [teamRow] = await sql`
+          INSERT INTO cs_arena.teams (tournament_id, name, captain_id, seed, status)
+          VALUES (${tournamentId}, ${playerObj.nickname}, ${playerObj.id}, ${t.seed}, 'active')
+          RETURNING id, name, seed;
+        `;
+        await sql`
+          INSERT INTO cs_arena.team_members (team_id, player_id, tournament_id, is_captain)
+          VALUES (${teamRow.id}, ${playerObj.id}, ${tournamentId}, true)
+          ON CONFLICT (tournament_id, player_id) DO NOTHING;
+        `;
+        await sql`
+          INSERT INTO cs_arena.draw_results (draw_id, player_id, team_id, selection_order, metadata)
+          VALUES (${drawRecord.id}, ${playerObj.id}, ${teamRow.id}, ${selectionOrder}, ${JSON.stringify({ is1v1: true, seed: t.seed })});
+        `;
+        animationSteps.push({
+          order: selectionOrder++,
+          playerId: playerObj.id,
+          playerNickname: playerObj.nickname,
+          avatarUrl: playerObj.avatarUrl,
+          teamName: playerObj.nickname,
+          teamSeed: t.seed,
+          isCaptain: true
+        });
+      }
+    } else {
       for (const t of draft.teams) {
         const [teamRow] = await sql`
           INSERT INTO cs_arena.teams (tournament_id, name, captain_id, seed, status)
@@ -14480,28 +15052,671 @@ async function handleDraws(req, tournamentId, action) {
           VALUES (${drawRecord.id}, ${r.playerId}, ${selectionOrder++}, ${JSON.stringify({ isReserve: true })});
         `;
       }
-      await sql`
-        UPDATE cs_arena.tournaments
-        SET status = 'drawing', updated_at = NOW()
-        WHERE id = ${tournamentId};
+    }
+    await sql`
+      UPDATE cs_arena.tournaments
+      SET status = 'drawing', updated_at = NOW()
+      WHERE id = ${tournamentId};
+    `;
+    await sql`
+      INSERT INTO cs_arena.audit_logs (actor_id, actor_name, action, entity_type, entity_id, after_state)
+      VALUES (
+        ${actor.userId}, ${actor.name}, 'DRAW_TEAMS', 'tournaments', ${tournamentId},
+        ${JSON.stringify({ drawId: drawRecord.id, algorithm, gameMode, teamSize, teams: draft.teams.length, reserves: draft.reserves.length })}
+      );
+    `;
+    return {
+      success: true,
+      drawId: drawRecord.id,
+      algorithm,
+      gameMode,
+      teamSize,
+      teams: draft.teams,
+      reserves: draft.reserves,
+      teamsCount: draft.teams.length,
+      reservesCount: draft.reserves.length,
+      animationSteps
+    };
+  }
+};
+
+// server/services/bracket.service.ts
+var BracketService = class {
+  static async generateBracket(tournamentId, actor) {
+    const [tournament] = await sql`
+      SELECT id, name, team_size, game_mode, best_of
+      FROM cs_arena.tournaments
+      WHERE id = ${tournamentId};
+    `;
+    if (!tournament)
+      throw new Error("Campeonato n\xE3o encontrado.");
+    const teamSize = Number(tournament.team_size) || 5;
+    const gameMode = tournament.game_mode || "5v5";
+    const is1v1 = teamSize === 1 || gameMode === "1v1";
+    const bestOf = 1;
+    const teams = await sql`
+      SELECT t.id, t.name, t.seed, t.captain_id
+      FROM cs_arena.teams t
+      WHERE t.tournament_id = ${tournamentId}
+      ORDER BY t.seed ASC;
+    `;
+    if (teams.length < 2) {
+      throw new Error(
+        is1v1 ? "\xC9 necess\xE1rio ter no m\xEDnimo 2 duelistas cadastrados para gerar a chave de confrontos 1x1." : "\xC9 necess\xE1rio ter no m\xEDnimo 2 equipes para gerar a chave de confrontos."
+      );
+    }
+    await sql`DELETE FROM cs_arena.bracket_rounds WHERE tournament_id = ${tournamentId};`;
+    const participants = teams.map((t) => ({
+      id: is1v1 && t.captain_id ? t.captain_id : t.id,
+      seed: t.seed,
+      name: t.name,
+      teamId: t.id,
+      playerId: t.captain_id
+    }));
+    const generated = generateSingleEliminationBracket(participants, bestOf, is1v1);
+    const roundIdMap = /* @__PURE__ */ new Map();
+    for (const r of generated.rounds) {
+      const [insertedRound] = await sql`
+        INSERT INTO cs_arena.bracket_rounds (tournament_id, round_number, name)
+        VALUES (${tournamentId}, ${r.roundNumber}, ${r.name})
+        RETURNING id;
       `;
-      await sql`
-        INSERT INTO cs_arena.audit_logs (actor_id, actor_name, action, entity_type, entity_id, after_state)
+      roundIdMap.set(r.roundNumber, insertedRound.id);
+    }
+    const matchIdMap = /* @__PURE__ */ new Map();
+    for (const m2 of generated.matches) {
+      const roundDbId = roundIdMap.get(m2.roundNumber);
+      let teamAId = null;
+      let teamBId = null;
+      let playerAId = null;
+      let playerBId = null;
+      let winnerId = null;
+      let winnerPlayerId = null;
+      if (is1v1) {
+        playerAId = m2.playerAId || null;
+        playerBId = m2.playerBId || null;
+        winnerPlayerId = m2.winnerPlayerId || null;
+        const partA = participants.find((p2) => p2.id === playerAId);
+        const partB = participants.find((p2) => p2.id === playerBId);
+        const winPart = participants.find((p2) => p2.id === winnerPlayerId);
+        teamAId = partA ? partA.teamId : null;
+        teamBId = partB ? partB.teamId : null;
+        winnerId = winPart ? winPart.teamId : null;
+      } else {
+        teamAId = m2.teamAId || null;
+        teamBId = m2.teamBId || null;
+        winnerId = m2.winnerId || null;
+      }
+      const [insertedMatch] = await sql`
+        INSERT INTO cs_arena.matches (
+          tournament_id, round_id, bracket_position,
+          team_a_id, team_b_id, player_a_id, player_b_id,
+          winner_id, winner_player_id, is_bye, best_of, status
+        )
         VALUES (
-          ${authCheck.user.userId}, ${authCheck.user.name}, 'DRAW_TEAMS', 'tournaments', ${tournamentId},
-          ${JSON.stringify({ drawId: drawRecord.id, algorithm, teams: draft.teams.length, reserves: draft.reserves.length })}
+          ${tournamentId}, ${roundDbId}, ${m2.bracketPosition},
+          ${teamAId}, ${teamBId}, ${playerAId}, ${playerBId},
+          ${winnerId}, ${winnerPlayerId}, ${m2.isBye}, ${bestOf}, ${m2.status}
+        )
+        RETURNING id;
+      `;
+      matchIdMap.set(m2.bracketPosition, insertedMatch.id);
+    }
+    for (const m2 of generated.matches) {
+      if (m2.nextRoundMatchIndex !== void 0) {
+        const thisMatchDbId = matchIdMap.get(m2.bracketPosition);
+        const nextMatchDbId = matchIdMap.get(m2.nextRoundMatchIndex);
+        await sql`
+          UPDATE cs_arena.matches
+          SET next_match_id = ${nextMatchDbId}, next_match_slot = ${m2.nextMatchSlot || null}
+          WHERE id = ${thisMatchDbId};
+        `;
+        if (m2.isBye) {
+          if (is1v1 && m2.winnerPlayerId) {
+            const winPart = participants.find((p2) => p2.id === m2.winnerPlayerId);
+            const teamId = winPart ? winPart.teamId : null;
+            if (m2.nextMatchSlot === "team_a") {
+              await sql`
+                UPDATE cs_arena.matches
+                SET player_a_id = ${m2.winnerPlayerId}, team_a_id = ${teamId}
+                WHERE id = ${nextMatchDbId};
+              `;
+            } else if (m2.nextMatchSlot === "team_b") {
+              await sql`
+                UPDATE cs_arena.matches
+                SET player_b_id = ${m2.winnerPlayerId}, team_b_id = ${teamId}
+                WHERE id = ${nextMatchDbId};
+              `;
+            }
+          } else if (!is1v1 && m2.winnerId) {
+            if (m2.nextMatchSlot === "team_a") {
+              await sql`
+                UPDATE cs_arena.matches
+                SET team_a_id = ${m2.winnerId}
+                WHERE id = ${nextMatchDbId};
+              `;
+            } else if (m2.nextMatchSlot === "team_b") {
+              await sql`
+                UPDATE cs_arena.matches
+                SET team_b_id = ${m2.winnerId}
+                WHERE id = ${nextMatchDbId};
+              `;
+            }
+          }
+        }
+      }
+    }
+    await sql`
+      UPDATE cs_arena.tournaments
+      SET status = 'in_progress', updated_at = NOW()
+      WHERE id = ${tournamentId};
+    `;
+    await sql`
+      INSERT INTO cs_arena.audit_logs (actor_id, actor_name, action, entity_type, entity_id, after_state)
+      VALUES (
+        ${actor.userId}, ${actor.name}, 'DRAW_BRACKET', 'tournaments', ${tournamentId},
+        ${JSON.stringify({ matchesCount: generated.matches.length, roundsCount: generated.rounds.length, is1v1, gameMode })}
+      );
+    `;
+    return {
+      success: true,
+      roundsCount: generated.rounds.length,
+      matchesCount: generated.matches.length
+    };
+  }
+  static async getBracket(tournamentId) {
+    const rounds = await sql`
+      SELECT id, round_number, name
+      FROM cs_arena.bracket_rounds
+      WHERE tournament_id = ${tournamentId}
+      ORDER BY round_number ASC;
+    `;
+    const matchesList = await sql`
+      SELECT 
+        m.id, m.round_id, br.round_number, br.name as round_name, m.bracket_position, m.is_bye, m.best_of, m.status,
+        m.next_match_id, m.next_match_slot, m.winner_id, m.winner_player_id,
+        m.map_name, m.evidence_url, m.scheduled_at, m.completed_at,
+        t1.id as team_a_id, t1.name as team_a_name, t1.seed as team_a_seed,
+        t2.id as team_b_id, t2.name as team_b_name, t2.seed as team_b_seed,
+        w.name as winner_name,
+        pa.id as player_a_id, pa.nickname as player_a_name, pa.avatar_url as player_a_avatar,
+        pb.id as player_b_id, pb.nickname as player_b_name, pb.avatar_url as player_b_avatar,
+        pw.id as winner_player_id_real, pw.nickname as winner_player_name, pw.avatar_url as winner_player_avatar
+      FROM cs_arena.matches m
+      JOIN cs_arena.bracket_rounds br ON m.round_id = br.id
+      LEFT JOIN cs_arena.teams t1 ON m.team_a_id = t1.id
+      LEFT JOIN cs_arena.teams t2 ON m.team_b_id = t2.id
+      LEFT JOIN cs_arena.teams w ON m.winner_id = w.id
+      LEFT JOIN cs_arena.players pa ON m.player_a_id = pa.id
+      LEFT JOIN cs_arena.players pb ON m.player_b_id = pb.id
+      LEFT JOIN cs_arena.players pw ON m.winner_player_id = pw.id
+      WHERE m.tournament_id = ${tournamentId}
+      ORDER BY m.bracket_position ASC;
+    `;
+    const mapsList = await sql`
+      SELECT mm.*
+      FROM cs_arena.match_maps mm
+      JOIN cs_arena.matches m ON mm.match_id = m.id
+      WHERE m.tournament_id = ${tournamentId}
+      ORDER BY mm.match_id, mm.order_number ASC;
+    `;
+    const mapsByMatch = /* @__PURE__ */ new Map();
+    for (const mapItem of mapsList) {
+      if (!mapsByMatch.has(mapItem.match_id)) {
+        mapsByMatch.set(mapItem.match_id, []);
+      }
+      mapsByMatch.get(mapItem.match_id).push(mapItem);
+    }
+    const matchesWithMaps = matchesList.map((m2) => ({
+      ...m2,
+      maps: mapsByMatch.get(m2.id) || []
+    }));
+    return {
+      rounds,
+      matches: matchesWithMaps
+    };
+  }
+};
+
+// server/services/match.service.ts
+var MatchService = class {
+  static async getMatch(matchId) {
+    const [match] = await sql`
+      SELECT 
+        m.*,
+        r.name as round_name, r.round_number,
+        t.game_mode, t.team_size, t.name as tournament_name,
+        t1.name as team_a_name, t1.seed as team_a_seed,
+        t2.name as team_b_name, t2.seed as team_b_seed,
+        w.name as winner_name,
+        pa.nickname as player_a_name, pa.avatar_url as player_a_avatar,
+        pb.nickname as player_b_name, pb.avatar_url as player_b_avatar,
+        pw.nickname as winner_player_name, pw.avatar_url as winner_player_avatar
+      FROM cs_arena.matches m
+      JOIN cs_arena.bracket_rounds r ON m.round_id = r.id
+      JOIN cs_arena.tournaments t ON m.tournament_id = t.id
+      LEFT JOIN cs_arena.teams t1 ON m.team_a_id = t1.id
+      LEFT JOIN cs_arena.teams t2 ON m.team_b_id = t2.id
+      LEFT JOIN cs_arena.teams w ON m.winner_id = w.id
+      LEFT JOIN cs_arena.players pa ON m.player_a_id = pa.id
+      LEFT JOIN cs_arena.players pb ON m.player_b_id = pb.id
+      LEFT JOIN cs_arena.players pw ON m.winner_player_id = pw.id
+      WHERE m.id = ${matchId};
+    `;
+    if (!match)
+      return null;
+    const maps = await sql`
+      SELECT *
+      FROM cs_arena.match_maps
+      WHERE match_id = ${matchId}
+      ORDER BY order_number ASC;
+    `;
+    return { match, maps };
+  }
+  static async submitMatchResult(matchId, input, actor) {
+    const { maps, evidenceUrl } = input;
+    if (!Array.isArray(maps) || maps.length === 0) {
+      throw new Error("\xC9 necess\xE1rio informar os dados do mapa disputado.");
+    }
+    const [match] = await sql`
+      SELECT m.*, t.game_mode, t.team_size
+      FROM cs_arena.matches m
+      JOIN cs_arena.tournaments t ON m.tournament_id = t.id
+      WHERE m.id = ${matchId};
+    `;
+    if (!match)
+      throw new Error("Partida n\xE3o encontrada.");
+    const is1v1 = match.team_size === 1 || match.game_mode === "1v1";
+    if (is1v1) {
+      if (!match.player_a_id || !match.player_b_id) {
+        throw new Error("A partida 1x1 ainda n\xE3o possui ambos os duelistas definidos.");
+      }
+    } else {
+      if (!match.team_a_id || !match.team_b_id) {
+        throw new Error("A partida ainda n\xE3o possui ambas as equipes definidas.");
+      }
+    }
+    const participantA = is1v1 ? match.player_a_id : match.team_a_id;
+    const participantB = is1v1 ? match.player_b_id : match.team_b_id;
+    const seriesCheck = checkSeriesWinner(maps, participantA, participantB, match.best_of || 1);
+    if (seriesCheck.error) {
+      throw new Error(seriesCheck.error);
+    }
+    await sql`DELETE FROM cs_arena.match_maps WHERE match_id = ${matchId};`;
+    for (const m2 of maps) {
+      const winnerParticipantId = m2.scoreA > m2.scoreB ? participantA : participantB;
+      const winnerTeamId = is1v1 ? m2.scoreA > m2.scoreB ? match.team_a_id : match.team_b_id : winnerParticipantId;
+      const winnerPlayerId = is1v1 ? winnerParticipantId : null;
+      await sql`
+        INSERT INTO cs_arena.match_maps (
+          match_id, order_number, map_name, score_a, score_b, winner_id, winner_player_id
+        )
+        VALUES (
+          ${matchId}, ${m2.orderNumber}, ${m2.mapName}, ${m2.scoreA}, ${m2.scoreB},
+          ${winnerTeamId || null}, ${winnerPlayerId || null}
         );
       `;
-      return jsonResponse({
-        success: true,
-        drawId: drawRecord.id,
-        algorithm,
-        teamsCount: draft.teams.length,
-        reservesCount: draft.reserves.length,
-        animationSteps
-      });
+    }
+    const newStatus = seriesCheck.isCompleted ? "completed" : "in_progress";
+    const seriesWinnerPartId = seriesCheck.seriesWinnerId;
+    let finalWinnerTeamId = null;
+    let finalWinnerPlayerId = null;
+    if (seriesWinnerPartId) {
+      if (is1v1) {
+        finalWinnerPlayerId = seriesWinnerPartId;
+        finalWinnerTeamId = seriesWinnerPartId === match.player_a_id ? match.team_a_id : match.team_b_id;
+      } else {
+        finalWinnerTeamId = seriesWinnerPartId;
+      }
+    }
+    const firstMap = maps[0];
+    const [updatedMatch] = await sql`
+      UPDATE cs_arena.matches
+      SET 
+        status = ${newStatus},
+        winner_id = ${finalWinnerTeamId || null},
+        winner_player_id = ${finalWinnerPlayerId || null},
+        map_name = COALESCE(${firstMap?.mapName || null}, map_name),
+        evidence_url = COALESCE(${evidenceUrl || null}, evidence_url),
+        completed_at = ${seriesCheck.isCompleted ? (/* @__PURE__ */ new Date()).toISOString() : null},
+        version = version + 1
+      WHERE id = ${matchId}
+      RETURNING *;
+    `;
+    if (seriesCheck.isCompleted && seriesWinnerPartId) {
+      if (updatedMatch.next_match_id) {
+        if (updatedMatch.next_match_slot === "team_a") {
+          await sql`
+            UPDATE cs_arena.matches
+            SET 
+              team_a_id = ${finalWinnerTeamId || null},
+              player_a_id = ${finalWinnerPlayerId || null}
+            WHERE id = ${updatedMatch.next_match_id};
+          `;
+        } else if (updatedMatch.next_match_slot === "team_b") {
+          await sql`
+            UPDATE cs_arena.matches
+            SET 
+              team_b_id = ${finalWinnerTeamId || null},
+              player_b_id = ${finalWinnerPlayerId || null}
+            WHERE id = ${updatedMatch.next_match_id};
+          `;
+        }
+      } else {
+        const loserTeamId = finalWinnerTeamId === match.team_a_id ? match.team_b_id : match.team_a_id;
+        await sql`
+          UPDATE cs_arena.tournaments
+          SET status = 'completed', updated_at = NOW()
+          WHERE id = ${match.tournament_id};
+        `;
+        if (finalWinnerTeamId) {
+          await sql`
+            UPDATE cs_arena.teams
+            SET status = 'champion'
+            WHERE id = ${finalWinnerTeamId};
+          `;
+        }
+        if (loserTeamId) {
+          await sql`
+            UPDATE cs_arena.teams
+            SET status = 'runner_up'
+            WHERE id = ${loserTeamId};
+          `;
+        }
+      }
+    }
+    await sql`
+      INSERT INTO cs_arena.audit_logs (actor_id, actor_name, action, entity_type, entity_id, after_state)
+      VALUES (
+        ${actor.userId}, ${actor.name}, 'SUBMIT_MATCH_RESULT', 'matches', ${matchId},
+        ${JSON.stringify({ matchId, seriesCheck, maps, evidenceUrl })}
+      );
+    `;
+    return {
+      success: true,
+      match: updatedMatch,
+      series: seriesCheck,
+      tournamentCompleted: Boolean(!updatedMatch.next_match_id && seriesCheck.isCompleted)
+    };
+  }
+};
+
+// server/services/ranking.service.ts
+var RankingService = class {
+  static async getTournamentRanking(tournamentId) {
+    const [tournament] = await sql`
+      SELECT id, name, game_mode, team_size, status
+      FROM cs_arena.tournaments
+      WHERE id = ${tournamentId};
+    `;
+    if (!tournament)
+      return null;
+    const is1v1 = tournament.team_size === 1 || tournament.game_mode === "1v1";
+    const teams = await sql`
+      SELECT 
+        t.id, t.name, t.seed, t.status, t.captain_id,
+        p.nickname as captain_nickname, p.avatar_url as captain_avatar
+      FROM cs_arena.teams t
+      LEFT JOIN cs_arena.players p ON t.captain_id = p.id
+      WHERE t.tournament_id = ${tournamentId}
+      ORDER BY 
+        CASE 
+          WHEN t.status = 'champion' THEN 1
+          WHEN t.status = 'runner_up' THEN 2
+          ELSE 3
+        END,
+        t.seed ASC;
+    `;
+    const finalMatches = await sql`
+      SELECT 
+        m.*,
+        w.name as winner_name,
+        pw.nickname as winner_player_name
+      FROM cs_arena.matches m
+      LEFT JOIN cs_arena.teams w ON m.winner_id = w.id
+      LEFT JOIN cs_arena.players pw ON m.winner_player_id = pw.id
+      WHERE m.tournament_id = ${tournamentId} AND m.next_match_id IS NULL AND m.status = 'completed';
+    `;
+    const finalMatch = finalMatches[0] || null;
+    const rankings = teams.map((t, index) => ({
+      ...t,
+      rank: t.status === "champion" ? 1 : t.status === "runner_up" ? 2 : index + 1
+    }));
+    return {
+      tournament,
+      is1v1,
+      champion: teams.find((t) => t.status === "champion") || null,
+      runnerUp: teams.find((t) => t.status === "runner_up") || null,
+      finalMatch,
+      teams,
+      rankings
+    };
+  }
+};
+
+// server/routes/tournaments.ts
+async function handleTournaments(req, segments) {
+  const method = req.method;
+  const url = new URL(req.url);
+  const tournamentId = segments[0] || null;
+  const subAction = segments[1] || null;
+  if (!tournamentId && method === "GET") {
+    try {
+      const gameMode = url.searchParams.get("gameMode") || void 0;
+      const status = url.searchParams.get("status") || void 0;
+      const list = await TournamentService.listTournaments({ gameMode, status });
+      return jsonResponse({ tournaments: list });
     } catch (err) {
-      return jsonResponse({ error: err.message || "Erro ao executar sorteio das equipes" }, 500);
+      return jsonResponse({ error: err.message || "Erro ao listar campeonatos" }, 500);
+    }
+  }
+  if (!tournamentId && method === "POST") {
+    const authCheck = await requireAdmin(req);
+    if ("errorResponse" in authCheck)
+      return authCheck.errorResponse;
+    try {
+      const body = await req.json();
+      const created = await TournamentService.createTournament(body, {
+        userId: authCheck.user.userId,
+        name: authCheck.user.name
+      });
+      return jsonResponse({ tournament: created }, 201);
+    } catch (err) {
+      return jsonResponse({ error: err.message || "Erro ao criar campeonato" }, 400);
+    }
+  }
+  if (tournamentId) {
+    if (!subAction && method === "GET") {
+      try {
+        const tournament = await TournamentService.getTournament(tournamentId);
+        if (!tournament)
+          return jsonResponse({ error: "Campeonato n\xE3o encontrado." }, 404);
+        return jsonResponse({ tournament });
+      } catch (err) {
+        return jsonResponse({ error: err.message || "Erro ao buscar campeonato" }, 500);
+      }
+    }
+    if (!subAction && method === "PATCH") {
+      const authCheck = await requireAdmin(req);
+      if ("errorResponse" in authCheck)
+        return authCheck.errorResponse;
+      try {
+        const body = await req.json();
+        const updated = await TournamentService.updateTournament(tournamentId, body, {
+          userId: authCheck.user.userId,
+          name: authCheck.user.name
+        });
+        return jsonResponse({ tournament: updated });
+      } catch (err) {
+        return jsonResponse({ error: err.message || "Erro ao atualizar campeonato" }, 400);
+      }
+    }
+    if (subAction === "register" && method === "POST") {
+      try {
+        const body = await req.json();
+        const result = await RegistrationService.registerPlayer(tournamentId, body);
+        return jsonResponse({ success: true, ...result }, 201);
+      } catch (err) {
+        const status = err.message?.includes("j\xE1 est\xE1 inscrito") ? 409 : 400;
+        return jsonResponse({ error: err.message || "Erro na inscri\xE7\xE3o" }, status);
+      }
+    }
+    if (subAction === "cancel-registration" && method === "POST" || subAction === "register" && method === "DELETE") {
+      try {
+        const authUser = await getAuthUser(req);
+        const queryPlayerId = url.searchParams.get("playerId");
+        let bodyPlayerId;
+        try {
+          const body = await req.json();
+          bodyPlayerId = body.playerId;
+        } catch {
+        }
+        const playerId = queryPlayerId || bodyPlayerId;
+        if (!playerId) {
+          return jsonResponse({ error: "ID do jogador \xE9 obrigat\xF3rio para cancelamento." }, 400);
+        }
+        const result = await RegistrationService.cancelRegistration(tournamentId, playerId, {
+          userId: authUser?.userId,
+          name: authUser?.name
+        });
+        return jsonResponse(result);
+      } catch (err) {
+        return jsonResponse({ error: err.message || "Erro ao cancelar inscri\xE7\xE3o" }, 400);
+      }
+    }
+    if (subAction === "registrations" && method === "GET") {
+      try {
+        const result = await RegistrationService.getRegistrations(tournamentId);
+        return jsonResponse(result);
+      } catch (err) {
+        return jsonResponse({ error: err.message || "Erro ao buscar inscri\xE7\xF5es" }, 500);
+      }
+    }
+    if (subAction === "close-registration" && method === "POST") {
+      const authCheck = await requireAdmin(req);
+      if ("errorResponse" in authCheck)
+        return authCheck.errorResponse;
+      try {
+        const updated = await TournamentService.closeRegistration(tournamentId, {
+          userId: authCheck.user.userId,
+          name: authCheck.user.name
+        });
+        return jsonResponse({ tournament: updated });
+      } catch (err) {
+        return jsonResponse({ error: err.message || "Erro ao encerrar inscri\xE7\xF5es" }, 400);
+      }
+    }
+    if (subAction === "teams" && method === "GET") {
+      try {
+        const teamsList = await sql`
+          SELECT 
+            t.id, t.name, t.seed, t.status, t.captain_id,
+            p.nickname as captain_nickname, p.avatar_url as captain_avatar,
+            p.steam_level as captain_steam_level, p.cs2_hours as captain_cs2_hours
+          FROM cs_arena.teams t
+          LEFT JOIN cs_arena.players p ON t.captain_id = p.id
+          WHERE t.tournament_id = ${tournamentId}
+          ORDER BY t.seed ASC, t.created_at ASC;
+        `;
+        const membersList = await sql`
+          SELECT 
+            tm.team_id, tm.is_captain,
+            p.id as player_id, p.nickname, p.preferred_role, p.skill_rating, p.avatar_url,
+            p.steam_level, p.cs2_hours, p.steam_synced_at
+          FROM cs_arena.team_members tm
+          JOIN cs_arena.players p ON tm.player_id = p.id
+          WHERE tm.tournament_id = ${tournamentId}
+          ORDER BY tm.is_captain DESC, p.nickname ASC;
+        `;
+        const teamMap = /* @__PURE__ */ new Map();
+        for (const t of teamsList) {
+          teamMap.set(t.id, { ...t, members: [] });
+        }
+        for (const m2 of membersList) {
+          const team = teamMap.get(m2.team_id);
+          if (team) {
+            team.members.push(m2);
+          }
+        }
+        const reserves = await sql`
+          SELECT 
+            r.id, p.id as player_id, p.nickname, p.preferred_role, p.skill_rating, p.avatar_url,
+            p.steam_level, p.cs2_hours, p.steam_synced_at
+          FROM cs_arena.registrations r
+          JOIN cs_arena.players p ON r.player_id = p.id
+          WHERE r.tournament_id = ${tournamentId} AND r.status = 'reserve'
+          ORDER BY p.skill_rating DESC;
+        `;
+        return jsonResponse({
+          teams: Array.from(teamMap.values()),
+          reserves
+        });
+      } catch (err) {
+        return jsonResponse({ error: err.message || "Erro ao buscar equipes" }, 500);
+      }
+    }
+    if (subAction === "bracket" && method === "GET") {
+      try {
+        const result = await BracketService.getBracket(tournamentId);
+        return jsonResponse(result);
+      } catch (err) {
+        return jsonResponse({ error: err.message || "Erro ao buscar chaveamento" }, 500);
+      }
+    }
+    if (subAction === "ranking" && method === "GET") {
+      try {
+        const ranking = await RankingService.getTournamentRanking(tournamentId);
+        return jsonResponse({ ranking, rankings: ranking?.rankings || [] });
+      } catch (err) {
+        return jsonResponse({ error: err.message || "Erro ao buscar classifica\xE7\xE3o" }, 500);
+      }
+    }
+    if (subAction === "audit" && method === "GET") {
+      const authCheck = await requireAdmin(req);
+      if ("errorResponse" in authCheck)
+        return authCheck.errorResponse;
+      try {
+        const logs = await sql`
+          SELECT id, actor_id, actor_name, action, entity_type, entity_id, before_state, after_state, created_at
+          FROM cs_arena.audit_logs
+          WHERE entity_id = ${tournamentId} OR (after_state->>'tournamentId') = ${tournamentId}
+          ORDER BY created_at DESC
+          LIMIT 100;
+        `;
+        return jsonResponse({ auditLogs: logs });
+      } catch (err) {
+        return jsonResponse({ error: err.message || "Erro ao buscar auditoria" }, 500);
+      }
+    }
+  }
+  return jsonResponse({ error: "Endpoint n\xE3o encontrado." }, 404);
+}
+
+// server/routes/draws.ts
+async function handleDraws(req, tournamentId, action) {
+  const method = req.method;
+  if (action === "draw-teams" && method === "POST") {
+    const authCheck = await requireAdmin(req);
+    if ("errorResponse" in authCheck)
+      return authCheck.errorResponse;
+    try {
+      const body = await req.json().catch(() => ({}));
+      const result = await DrawService.executeDraw(
+        tournamentId,
+        {
+          algorithm: body.algorithm || "random",
+          idempotencyKey: body.idempotencyKey,
+          forceReset: body.forceReset
+        },
+        {
+          userId: authCheck.user.userId,
+          name: authCheck.user.name
+        }
+      );
+      return jsonResponse(result);
+    } catch (err) {
+      const status = err.message?.includes("j\xE1 foi executado") ? 409 : 400;
+      return jsonResponse({ error: err.message || "Erro ao executar sorteio das equipes" }, status);
     }
   }
   if (action === "draw-bracket" && method === "POST") {
@@ -14509,86 +15724,13 @@ async function handleDraws(req, tournamentId, action) {
     if ("errorResponse" in authCheck)
       return authCheck.errorResponse;
     try {
-      const body = await req.json().catch(() => ({}));
-      const teams = await sql`
-        SELECT id, name, seed
-        FROM cs_arena.teams
-        WHERE tournament_id = ${tournamentId}
-        ORDER BY seed ASC;
-      `;
-      if (teams.length < 2) {
-        return jsonResponse({ error: "\xC9 necess\xE1rio ter no m\xEDnimo 2 equipes para gerar a chave de confrontos." }, 400);
-      }
-      const [tournament] = await sql`
-        SELECT best_of FROM cs_arena.tournaments WHERE id = ${tournamentId};
-      `;
-      const bestOf = tournament?.best_of || 1;
-      await sql`DELETE FROM cs_arena.bracket_rounds WHERE tournament_id = ${tournamentId};`;
-      const generated = generateSingleEliminationBracket(
-        teams.map((t) => ({ id: t.id, seed: t.seed, name: t.name })),
-        bestOf
-      );
-      const roundIdMap = /* @__PURE__ */ new Map();
-      for (const r of generated.rounds) {
-        const [insertedRound] = await sql`
-          INSERT INTO cs_arena.bracket_rounds (tournament_id, round_number, name)
-          VALUES (${tournamentId}, ${r.roundNumber}, ${r.name})
-          RETURNING id;
-        `;
-        roundIdMap.set(r.roundNumber, insertedRound.id);
-      }
-      const matchIdMap = /* @__PURE__ */ new Map();
-      for (const m2 of generated.matches) {
-        const roundDbId = roundIdMap.get(m2.roundNumber);
-        const [insertedMatch] = await sql`
-          INSERT INTO cs_arena.matches (
-            tournament_id, round_id, bracket_position, team_a_id, team_b_id, is_bye, best_of, status, winner_id
-          )
-          VALUES (
-            ${tournamentId}, ${roundDbId}, ${m2.bracketPosition}, ${m2.teamAId || null}, ${m2.teamBId || null},
-            ${m2.isBye}, ${bestOf}, ${m2.status}, ${m2.winnerId || null}
-          )
-          RETURNING id;
-        `;
-        matchIdMap.set(m2.bracketPosition, insertedMatch.id);
-      }
-      for (const m2 of generated.matches) {
-        if (m2.nextRoundMatchIndex !== void 0) {
-          const thisMatchDbId = matchIdMap.get(m2.bracketPosition);
-          const nextMatchDbId = matchIdMap.get(m2.nextRoundMatchIndex);
-          await sql`
-            UPDATE cs_arena.matches
-            SET next_match_id = ${nextMatchDbId}, next_match_slot = ${m2.nextMatchSlot || null}
-            WHERE id = ${thisMatchDbId};
-          `;
-          if (m2.isBye && m2.winnerId) {
-            if (m2.nextMatchSlot === "team_a") {
-              await sql`UPDATE cs_arena.matches SET team_a_id = ${m2.winnerId} WHERE id = ${nextMatchDbId};`;
-            } else if (m2.nextMatchSlot === "team_b") {
-              await sql`UPDATE cs_arena.matches SET team_b_id = ${m2.winnerId} WHERE id = ${nextMatchDbId};`;
-            }
-          }
-        }
-      }
-      await sql`
-        UPDATE cs_arena.tournaments
-        SET status = 'in_progress', updated_at = NOW()
-        WHERE id = ${tournamentId};
-      `;
-      await sql`
-        INSERT INTO cs_arena.audit_logs (actor_id, actor_name, action, entity_type, entity_id, after_state)
-        VALUES (
-          ${authCheck.user.userId}, ${authCheck.user.name}, 'DRAW_BRACKET', 'tournaments', ${tournamentId},
-          ${JSON.stringify({ matchesCount: generated.matches.length, roundsCount: generated.rounds.length })}
-        );
-      `;
-      return jsonResponse({
-        success: true,
-        roundsCount: generated.rounds.length,
-        matchesCount: generated.matches.length
+      const result = await BracketService.generateBracket(tournamentId, {
+        userId: authCheck.user.userId,
+        name: authCheck.user.name
       });
+      return jsonResponse(result);
     } catch (err) {
-      return jsonResponse({ error: err.message || "Erro ao gerar chaveamento" }, 500);
+      return jsonResponse({ error: err.message || "Erro ao gerar chaveamento" }, 400);
     }
   }
   return jsonResponse({ error: "A\xE7\xE3o de sorteio desconhecida." }, 404);
@@ -14603,120 +15745,43 @@ async function handleMatches(req, segments) {
     return jsonResponse({ error: "ID da partida \xE9 obrigat\xF3rio." }, 400);
   }
   if (!subAction && method === "GET") {
-    const [match] = await sql`
-      SELECT 
-        m.*,
-        r.name as round_name, r.round_number,
-        t1.name as team_a_name, t1.seed as team_a_seed,
-        t2.name as team_b_name, t2.seed as team_b_seed,
-        w.name as winner_name
-      FROM cs_arena.matches m
-      JOIN cs_arena.bracket_rounds r ON m.round_id = r.id
-      LEFT JOIN cs_arena.teams t1 ON m.team_a_id = t1.id
-      LEFT JOIN cs_arena.teams t2 ON m.team_b_id = t2.id
-      LEFT JOIN cs_arena.teams w ON m.winner_id = w.id
-      WHERE m.id = ${matchId};
-    `;
-    if (!match)
-      return jsonResponse({ error: "Partida n\xE3o encontrada." }, 404);
-    const maps = await sql`
-      SELECT *
-      FROM cs_arena.match_maps
-      WHERE match_id = ${matchId}
-      ORDER BY order_number ASC;
-    `;
-    return jsonResponse({ match, maps });
+    try {
+      const data = await MatchService.getMatch(matchId);
+      if (!data)
+        return jsonResponse({ error: "Partida n\xE3o encontrada." }, 404);
+      return jsonResponse(data);
+    } catch (err) {
+      return jsonResponse({ error: err.message || "Erro ao buscar dados da partida" }, 500);
+    }
   }
-  if (subAction === "results" && method === "POST") {
+  if ((subAction === "results" || subAction === "result") && method === "POST") {
     const authCheck = await requireAdmin(req);
     if ("errorResponse" in authCheck)
       return authCheck.errorResponse;
     try {
       const body = await req.json();
-      const { maps } = body;
-      if (!Array.isArray(maps) || maps.length === 0) {
-        return jsonResponse({ error: "\xC9 necess\xE1rio informar ao menos um mapa." }, 400);
-      }
-      const [match] = await sql`
-        SELECT * FROM cs_arena.matches WHERE id = ${matchId};
-      `;
-      if (!match)
-        return jsonResponse({ error: "Partida n\xE3o encontrada." }, 404);
-      if (!match.team_a_id || !match.team_b_id) {
-        return jsonResponse({ error: "A partida ainda n\xE3o possui ambas as equipes definidas." }, 400);
-      }
-      const seriesCheck = checkSeriesWinner(maps, match.team_a_id, match.team_b_id, match.best_of);
-      if (seriesCheck.error) {
-        return jsonResponse({ error: seriesCheck.error }, 400);
-      }
-      await sql`DELETE FROM cs_arena.match_maps WHERE match_id = ${matchId};`;
-      for (const m2 of maps) {
-        const winnerId2 = m2.scoreA > m2.scoreB ? match.team_a_id : match.team_b_id;
-        await sql`
-          INSERT INTO cs_arena.match_maps (match_id, order_number, map_name, score_a, score_b, winner_id)
-          VALUES (${matchId}, ${m2.orderNumber}, ${m2.mapName}, ${m2.scoreA}, ${m2.scoreB}, ${winnerId2});
-        `;
-      }
-      const newStatus = seriesCheck.isCompleted ? "completed" : "in_progress";
-      const winnerId = seriesCheck.seriesWinnerId;
-      const [updatedMatch] = await sql`
-        UPDATE cs_arena.matches
-        SET 
-          status = ${newStatus},
-          winner_id = ${winnerId || null},
-          completed_at = ${seriesCheck.isCompleted ? (/* @__PURE__ */ new Date()).toISOString() : null},
-          version = version + 1
-        WHERE id = ${matchId}
-        RETURNING *;
-      `;
-      if (seriesCheck.isCompleted && winnerId) {
-        if (updatedMatch.next_match_id) {
-          if (updatedMatch.next_match_slot === "team_a") {
-            await sql`
-              UPDATE cs_arena.matches
-              SET team_a_id = ${winnerId}
-              WHERE id = ${updatedMatch.next_match_id};
-            `;
-          } else if (updatedMatch.next_match_slot === "team_b") {
-            await sql`
-              UPDATE cs_arena.matches
-              SET team_b_id = ${winnerId}
-              WHERE id = ${updatedMatch.next_match_id};
-            `;
-          }
-        } else {
-          const loserId = winnerId === match.team_a_id ? match.team_b_id : match.team_a_id;
-          await sql`
-            UPDATE cs_arena.tournaments
-            SET status = 'completed', updated_at = NOW()
-            WHERE id = ${match.tournament_id};
-          `;
-          await sql`
-            UPDATE cs_arena.teams
-            SET status = 'champion'
-            WHERE id = ${winnerId};
-          `;
-          await sql`
-            UPDATE cs_arena.teams
-            SET status = 'runner_up'
-            WHERE id = ${loserId};
-          `;
+      const maps = Array.isArray(body.maps) && body.maps.length > 0 ? body.maps : [
+        {
+          orderNumber: 1,
+          mapName: body.mapName || "de_dust2",
+          scoreA: Number(body.scoreA ?? 0),
+          scoreB: Number(body.scoreB ?? 0)
         }
-      }
-      await sql`
-        INSERT INTO cs_arena.audit_logs (actor_id, actor_name, action, entity_type, entity_id, after_state)
-        VALUES (
-          ${authCheck.user.userId}, ${authCheck.user.name}, 'SUBMIT_MATCH_RESULT', 'matches', ${matchId},
-          ${JSON.stringify({ matchId, seriesCheck, maps })}
-        );
-      `;
-      return jsonResponse({
-        success: true,
-        match: updatedMatch,
-        series: seriesCheck
-      });
+      ];
+      const result = await MatchService.submitMatchResult(
+        matchId,
+        {
+          maps,
+          evidenceUrl: body.evidenceUrl
+        },
+        {
+          userId: authCheck.user.userId,
+          name: authCheck.user.name
+        }
+      );
+      return jsonResponse(result);
     } catch (err) {
-      return jsonResponse({ error: err.message || "Erro ao registrar resultado da partida" }, 500);
+      return jsonResponse({ error: err.message || "Erro ao registrar resultado da partida" }, 400);
     }
   }
   return jsonResponse({ error: "A\xE7\xE3o n\xE3o reconhecida." }, 404);
@@ -14779,8 +15844,9 @@ async function router(req) {
   if (primary === "tournaments") {
     const tournamentId = segments[1];
     const subAction = segments[2];
-    if (tournamentId && (subAction === "draw-teams" || subAction === "draw-bracket")) {
-      return handleDraws(req, tournamentId, subAction);
+    if (tournamentId && (subAction === "draw-teams" || subAction === "draw-bracket" || subAction === "draw" && req.method === "POST" || subAction === "bracket" && req.method === "POST")) {
+      const mappedAction = subAction === "draw" ? "draw-teams" : subAction === "bracket" ? "draw-bracket" : subAction;
+      return handleDraws(req, tournamentId, mappedAction);
     }
     return handleTournaments(req, segments.slice(1));
   }

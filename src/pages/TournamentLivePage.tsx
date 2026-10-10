@@ -4,6 +4,7 @@ import { Link } from '../lib/router';
 import { BracketView } from '../components/BracketView';
 import { RouletteWheel } from '../components/RouletteWheel';
 import { Trophy, Tv, Maximize2, Minimize2, ArrowLeft, RefreshCw, GitFork, Play } from 'lucide-react';
+import { GameMode, getGameModeLabel } from '../lib/tournament-engine';
 
 export function TournamentLivePage({ params }: { params: Record<string, string> }) {
   const { id } = params;
@@ -58,6 +59,9 @@ export function TournamentLivePage({ params }: { params: Record<string, string> 
     return <div className="text-center py-20 text-slate-400">Carregando feed de transmissão...</div>;
   }
 
+  const gameMode: GameMode = (tournament?.game_mode || '5v5') as GameMode;
+  const modeLabel = getGameModeLabel(gameMode);
+
   return (
     <div className={`min-h-screen bg-cs-dark text-slate-100 ${isFullscreen ? 'p-8' : 'space-y-6 pb-16'}`}>
       {/* OBS Overlay Top Bar */}
@@ -76,6 +80,9 @@ export function TournamentLivePage({ params }: { params: Record<string, string> 
             </span>
           </div>
           <span className="text-slate-600">|</span>
+          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-cs-orange/20 text-cs-orange border border-cs-orange/30">
+            {modeLabel}
+          </span>
           <h1 className="font-display font-black text-xl text-white tracking-wide">
             {tournament?.name}
           </h1>
@@ -125,6 +132,7 @@ export function TournamentLivePage({ params }: { params: Record<string, string> 
             <BracketView
               rounds={bracketData.rounds}
               matches={bracketData.matches}
+              tournament={tournament}
               onRefresh={loadData}
             />
           )
@@ -137,7 +145,10 @@ export function TournamentLivePage({ params }: { params: Record<string, string> 
               preferredRole: r.preferred_role,
             }))}
             steps={teams.flatMap(t =>
-              (t.members || []).map((m: any, idx: number) => ({
+              (t.members && t.members.length > 0
+                ? t.members
+                : [{ player_id: t.captain_id, nickname: t.name, avatar_url: t.captain_avatar, is_captain: true }]
+              ).map((m: any, idx: number) => ({
                 order: idx + 1,
                 playerId: m.player_id,
                 playerNickname: m.nickname,

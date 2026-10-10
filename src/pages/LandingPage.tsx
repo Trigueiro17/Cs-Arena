@@ -1,7 +1,22 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import { Link } from '../lib/router';
-import { Trophy, Users, Shield, ArrowRight, Flame, Sparkles, Crosshair, Award, Zap, Compass, CheckCircle2 } from 'lucide-react';
+import {
+  Trophy,
+  Users,
+  Shield,
+  ArrowRight,
+  Flame,
+  Sparkles,
+  Crosshair,
+  Award,
+  Zap,
+  Compass,
+  CheckCircle2,
+  Swords,
+  Layers,
+} from 'lucide-react';
+import { GameMode } from '../lib/tournament-engine';
 
 const MAP_THEMES = [
   { name: 'Mirage', bg: 'from-amber-900/30 to-slate-900', border: 'border-amber-500/30' },
@@ -14,12 +29,16 @@ const MAP_THEMES = [
 
 export function LandingPage() {
   const [tournaments, setTournaments] = useState<any[]>([]);
+  const [selectedFilter, setSelectedFilter] = useState<'all' | GameMode>('all');
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function load() {
       try {
-        const data = await api.getTournaments();
+        setLoading(true);
+        const data = await api.getTournaments(
+          selectedFilter !== 'all' ? { gameMode: selectedFilter } : undefined
+        );
         setTournaments(data.tournaments || []);
       } catch (e) {
         console.error(e);
@@ -28,7 +47,7 @@ export function LandingPage() {
       }
     }
     load();
-  }, []);
+  }, [selectedFilter]);
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -76,6 +95,42 @@ export function LandingPage() {
     }
   };
 
+  const getGameModeBadge = (gameMode: string = '5v5') => {
+    switch (gameMode) {
+      case '1v1':
+        return (
+          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-red-500/15 text-red-400 border border-red-500/30">
+            1x1 Duelo
+          </span>
+        );
+      case '2v2':
+        return (
+          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-sky-500/15 text-sky-400 border border-sky-500/30">
+            2x2 Duplas
+          </span>
+        );
+      case '3v3':
+        return (
+          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-purple-500/15 text-purple-400 border border-purple-500/30">
+            3x3 Trios
+          </span>
+        );
+      case '4v4':
+        return (
+          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+            4x4 Quartetos
+          </span>
+        );
+      case '5v5':
+      default:
+        return (
+          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-amber-500/15 text-amber-400 border border-amber-500/30">
+            5x5 Equipes
+          </span>
+        );
+    }
+  };
+
   return (
     <div className="space-y-16 pb-20 relative z-10">
       {/* Hero Cinematic Section */}
@@ -92,47 +147,46 @@ export function LandingPage() {
         <div className="relative z-10 p-8 sm:p-12 max-w-3xl space-y-6">
           <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-cs-orange/20 border border-cs-orange/40 text-cs-orange text-xs font-black uppercase tracking-widest backdrop-blur-md">
             <Flame className="w-4 h-4 fill-current text-cs-orange animate-pulse" />
-            Campeonato Oficial de Counter-Strike 2
+            Arena Oficial de Counter-Strike 2 • 1x1 a 5x5
           </div>
 
           <h1 className="text-4xl sm:text-6xl font-black font-display tracking-tight text-white leading-none">
             A ARENA SUPREMA <br />
-            <span className="text-gradient-orange">
-              ROLETA & MATA-MATA 5X5
-            </span>
+            <span className="text-gradient-orange">DO COUNTER-STRIKE 2</span>
           </h1>
 
-          <p className="text-sm sm:text-base text-slate-300 leading-relaxed max-w-2xl font-normal">
-            Inscreva-se individualmente. Nossa <strong className="text-white">roleta criptograficamente segura</strong> monta equipes de 5 jogadores em tempo real, sorteia o chaveamento de eliminação simples e coroa o esquadrão campeão.
+          <p className="text-base sm:text-lg text-slate-200 leading-relaxed max-w-xl font-normal">
+            Campeonatos de CS2 em cinco modalidades: <strong className="text-white">1x1, 2x2, 3x3, 4x4 e 5x5</strong>. Inscrição individual, formação de times por roleta animada no servidor Neon e chaveamento mata-mata.
           </p>
 
           <div className="flex flex-wrap items-center gap-4 pt-2">
             <a
               href="#tournaments-list"
-              className="btn-shimmer px-8 py-4 rounded-xl bg-gradient-to-r from-cs-orange to-amber-500 hover:from-orange-600 hover:to-amber-600 text-cs-dark font-black font-display text-lg tracking-wider flex items-center gap-2.5 glow-orange transition-all transform active:scale-95"
+              className="px-7 py-3.5 rounded-xl bg-cs-orange hover:bg-cs-orange-hover text-cs-dark font-black font-display text-lg tracking-wide shadow-glow-orange transition-all flex items-center gap-2 transform active:scale-95"
             >
-              <Trophy className="w-5 h-5 text-cs-dark stroke-[2.5]" />
-              Ver Torneios Disponíveis
-              <ArrowRight className="w-5 h-5" />
+              Explorar Campeonatos
+              <ArrowRight className="w-5 h-5 stroke-[2.5]" />
             </a>
 
-            <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-black/50 backdrop-blur-md border border-white/10 text-xs text-slate-300">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
-              <span>Neon PostgreSQL Serverless Ativo</span>
-            </div>
+            <Link
+              to="/admin/tournaments/new"
+              className="px-6 py-3.5 rounded-xl bg-slate-900/90 hover:bg-slate-800 text-slate-100 font-bold font-display text-base border border-slate-700/80 transition-colors flex items-center gap-2 backdrop-blur-sm"
+            >
+              Criar Campeonato
+            </Link>
           </div>
         </div>
       </section>
 
       {/* Feature Highlights Grid */}
-      <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="glass-panel rounded-2xl p-5 border-l-4 border-l-cs-orange flex items-start gap-3.5">
-          <div className="p-2.5 rounded-xl bg-cs-orange/15 text-cs-orange shrink-0">
-            <Users className="w-6 h-6" />
+      <section className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <div className="glass-panel rounded-2xl p-5 border-l-4 border-l-red-500 flex items-start gap-3.5">
+          <div className="p-2.5 rounded-xl bg-red-500/15 text-red-400 shrink-0">
+            <Swords className="w-6 h-6" />
           </div>
           <div>
-            <h4 className="font-display font-black text-white text-base">Inscrição Individual</h4>
-            <p className="text-xs text-slate-400 mt-0.5">Cadastre seu nickname e role preferido (AWP, Entry, IGL, Support).</p>
+            <h4 className="font-display font-black text-white text-base">5 Modalidades</h4>
+            <p className="text-xs text-slate-400 mt-0.5">Duelo 1x1, Duplas 2x2, Trios 3x3, Quartetos 4x4 e 5x5 tradicional.</p>
           </div>
         </div>
 
@@ -142,7 +196,7 @@ export function LandingPage() {
           </div>
           <div>
             <h4 className="font-display font-black text-white text-base">Roleta Criptográfica</h4>
-            <p className="text-xs text-slate-400 mt-0.5">Sorteio seguro com Fisher-Yates e Web Audio API sem manipular resultados.</p>
+            <p className="text-xs text-slate-400 mt-0.5">Sorteio seguro com Fisher-Yates no backend Neon com som e confetes.</p>
           </div>
         </div>
 
@@ -152,7 +206,7 @@ export function LandingPage() {
           </div>
           <div>
             <h4 className="font-display font-black text-white text-base">Chave Mata-Mata</h4>
-            <p className="text-xs text-slate-400 mt-0.5">Eliminação simples MD1/MD3 com cálculo inteligente de BYEs automáticos.</p>
+            <p className="text-xs text-slate-400 mt-0.5">Eliminação simples MD1 com cálculo justo de BYEs e avanço automático.</p>
           </div>
         </div>
 
@@ -179,9 +233,41 @@ export function LandingPage() {
               Torneios em Destaque
             </h2>
           </div>
-          <p className="text-xs sm:text-sm text-slate-400 max-w-md">
-            Selecione qualquer campeonato para ver chaves, elencos formados ou girar a roleta ao vivo.
-          </p>
+
+          {/* Filter Chips by Game Mode */}
+          <div className="flex flex-wrap items-center gap-1.5 bg-slate-900/80 p-1.5 rounded-xl border border-slate-800">
+            <button
+              onClick={() => setSelectedFilter('all')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                selectedFilter === 'all'
+                  ? 'bg-cs-orange text-cs-dark shadow-glow-orange'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Todos
+            </button>
+            {(['1v1', '2v2', '3v3', '4v4', '5v5'] as const).map(mode => (
+              <button
+                key={mode}
+                onClick={() => setSelectedFilter(mode)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  selectedFilter === mode
+                    ? 'bg-cs-orange text-cs-dark shadow-glow-orange'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                {mode === '1v1'
+                  ? '1x1 Duelos'
+                  : mode === '2v2'
+                  ? '2x2 Duplas'
+                  : mode === '3v3'
+                  ? '3x3 Trios'
+                  : mode === '4v4'
+                  ? '4x4 Quartetos'
+                  : '5x5 Equipes'}
+              </button>
+            ))}
+          </div>
         </div>
 
         {loading ? (
@@ -192,14 +278,18 @@ export function LandingPage() {
         ) : tournaments.length === 0 ? (
           <div className="py-20 text-center glass-panel rounded-3xl p-12">
             <Trophy className="w-12 h-12 text-slate-600 mx-auto mb-3" />
-            <h3 className="text-lg font-bold text-white font-display">Nenhum campeonato cadastrado ainda</h3>
+            <h3 className="text-lg font-bold text-white font-display">Nenhum campeonato encontrado</h3>
+            <p className="text-xs text-slate-400 mt-1">Experimente trocar o filtro ou crie um novo campeonato.</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {tournaments.map((t, index) => {
               const theme = MAP_THEMES[index % MAP_THEMES.length];
-              const teamCount = Math.floor((t.registrations_count || 0) / 5);
-              const reservesCount = (t.registrations_count || 0) % 5;
+              const teamSize = Number(t.team_size) || 5;
+              const is1v1 = teamSize === 1 || t.game_mode === '1v1';
+              const totalRegs = t.registrations_count || 0;
+              const teamsCount = is1v1 ? totalRegs : Math.floor(totalRegs / teamSize);
+              const reservesCount = is1v1 ? 0 : totalRegs % teamSize;
 
               return (
                 <div
@@ -207,11 +297,14 @@ export function LandingPage() {
                   className={`glass-panel rounded-3xl p-6 flex flex-col justify-between border ${theme.border} hover:border-cs-orange transition-all duration-300 group`}
                 >
                   <div className="space-y-4">
-                    {/* Header: Status and Series Tag */}
-                    <div className="flex items-center justify-between">
-                      {getStatusBadge(t.status)}
-                      <span className="text-xs font-mono font-bold text-amber-400 bg-amber-500/10 border border-amber-500/30 px-2.5 py-0.5 rounded-full">
-                        MD{t.best_of}
+                    {/* Header: Status, Modality, and Series Tag */}
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {getStatusBadge(t.status)}
+                        {getGameModeBadge(t.game_mode)}
+                      </div>
+                      <span className="text-xs font-mono font-bold text-amber-400 bg-amber-500/10 border border-amber-500/30 px-2.5 py-0.5 rounded-full shrink-0">
+                        MD{t.best_of || 1}
                       </span>
                     </div>
 
@@ -221,7 +314,7 @@ export function LandingPage() {
                         {t.name}
                       </h3>
                       <p className="text-xs text-slate-400 line-clamp-2 mt-1.5 leading-relaxed">
-                        {t.description || 'Campeonato oficial de CS2 5x5 no formato mata-mata.'}
+                        {t.description || 'Campeonato oficial de Counter-Strike 2 no formato mata-mata.'}
                       </p>
                     </div>
 
@@ -230,13 +323,15 @@ export function LandingPage() {
                       <div className="text-center">
                         <div className="text-[10px] text-slate-400 uppercase font-semibold">Inscritos</div>
                         <div className="text-base font-black font-mono text-white mt-0.5">
-                          {t.registrations_count || 0}
+                          {totalRegs}
                         </div>
                       </div>
                       <div className="text-center border-x border-white/5">
-                        <div className="text-[10px] text-slate-400 uppercase font-semibold">Equipes</div>
+                        <div className="text-[10px] text-slate-400 uppercase font-semibold">
+                          {is1v1 ? 'Duelistas' : 'Equipes'}
+                        </div>
                         <div className="text-base font-black font-mono text-cs-orange mt-0.5">
-                          {teamCount}
+                          {teamsCount}
                         </div>
                       </div>
                       <div className="text-center">

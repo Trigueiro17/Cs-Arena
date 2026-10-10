@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useRouter } from '../lib/router';
-import { Trophy, Shield, KeyRound, Mail, User, ArrowRight, CheckCircle2, UserPlus, LogIn, AtSign, HelpCircle, RefreshCw } from 'lucide-react';
+import { Trophy, Shield, KeyRound, Mail, User, ArrowRight, CheckCircle2, UserPlus, LogIn, AtSign, HelpCircle, RefreshCw, Sparkles } from 'lucide-react';
 
 export function LoginPage() {
   const { login, registerUser } = useAuth();
@@ -158,6 +158,33 @@ export function LoginPage() {
             {mode === 'forgot' && 'Recuperação segura de senha'}
             {mode === 'reset' && 'Defina sua nova senha de acesso'}
           </p>
+        </div>
+
+        {/* Steam Login Banner */}
+        <div className="mb-6 p-4 rounded-2xl bg-gradient-to-b from-[#1b2838] to-[#171a21] border border-cyan-500/30 shadow-lg shadow-cyan-950/30">
+          <a
+            href="/api/auth/steam"
+            className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-[#171a21] via-[#21354d] to-[#171a21] hover:from-[#21354d] hover:to-[#2a475e] border border-cyan-400/40 hover:border-cyan-300 text-white font-black text-sm flex items-center justify-center gap-3 transition-all group shadow-md"
+          >
+            <svg className="w-5 h-5 fill-current text-cyan-400 group-hover:scale-110 transition-transform" viewBox="0 0 24 24">
+              <path d="M11.979 0C5.678 0 .511 4.86.022 11.037l6.432 2.658c.545-.371 1.203-.59 1.912-.59.063 0 .125.004.188.006l2.861-4.142V8.91c0-2.495 2.028-4.524 4.524-4.524 2.494 0 4.524 2.029 4.524 4.524s-2.03 4.524-4.524 4.524h-.105l-4.076 2.811c0 .085.005.17.005.257 0 1.84-1.492 3.332-3.332 3.332-1.495 0-2.763-.984-3.185-2.35L.373 15.034C1.942 20.246 6.551 24 12 24c6.627 0 12-5.373 12-12S18.627 0 11.979 0zM7.54 18.217l-1.473-.609c.266.586.75 1.05 1.359 1.281.986.375 2.095-.116 2.47-1.102.18-.475.166-.98-.014-1.423-.18-.444-.54-.783-.985-.953-.391-.148-.802-.148-1.185-.03l1.535.635c.465.193.687.727.495 1.192-.193.464-.727.686-1.192.495l-.014.514zm8.4-7.049c-1.252 0-2.268-1.016-2.268-2.268 0-1.253 1.016-2.269 2.268-2.269 1.253 0 2.269 1.016 2.269 2.269 0 1.252-1.016 2.268-2.269 2.268zm0-3.63c-.752 0-1.361.61-1.361 1.362s.609 1.362 1.361 1.362c.751 0 1.361-.61 1.361-1.362s-.61-1.362-1.361-1.362z" />
+            </svg>
+            <span className="tracking-wide">Entrar com a Steam</span>
+          </a>
+
+          <div className="flex items-center justify-center gap-1.5 mt-2.5 text-[11px] text-cyan-300 font-medium text-center">
+            <Sparkles className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+            <span>Sincroniza Nível Steam e Horas de CS2 para balancear partidas</span>
+          </div>
+        </div>
+
+        <div className="relative mb-6 text-center">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t border-slate-800" />
+          </div>
+          <span className="relative bg-cs-card px-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest">
+            ou continue com credenciais
+          </span>
         </div>
 
         {/* Tab Switcher */}

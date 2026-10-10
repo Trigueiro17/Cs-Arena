@@ -3,7 +3,20 @@ import { api } from '../lib/api';
 import { Link, useRouter } from '../lib/router';
 import { useAuth } from '../context/AuthContext';
 import { RouletteWheel, DrawStep } from '../components/RouletteWheel';
-import { Trophy, GitFork, Play, RotateCcw, AlertCircle, ArrowLeft, Shield } from 'lucide-react';
+import {
+  Trophy,
+  GitFork,
+  Play,
+  RotateCcw,
+  AlertCircle,
+  ArrowLeft,
+  Shield,
+  Swords,
+  Users,
+  Maximize2,
+  Tv,
+} from 'lucide-react';
+import { GameMode, getGameModeLabel } from '../lib/tournament-engine';
 
 export function TournamentDrawPage({ params }: { params: Record<string, string> }) {
   const { id } = params;
@@ -89,52 +102,63 @@ export function TournamentDrawPage({ params }: { params: Record<string, string> 
     return <div className="text-center py-20 text-slate-400">Carregando dados de sorteio...</div>;
   }
 
-  const eligibleCount = registrations.length;
-  const fullTeamsCount = Math.floor(eligibleCount / 5);
-  const reservesCount = eligibleCount % 5;
+  const gameMode: GameMode = (tournament?.game_mode || '5v5') as GameMode;
+  const teamSize = Number(tournament?.team_size) || 5;
+  const is1v1 = teamSize === 1 || gameMode === '1v1';
+  const modeLabel = getGameModeLabel(gameMode);
+
+  const activeRegistrations = registrations.filter(r => r.status !== 'withdrawn');
+  const eligibleCount = activeRegistrations.length;
+  const fullTeamsCount = is1v1 ? eligibleCount : Math.floor(eligibleCount / teamSize);
+  const reservesCount = is1v1 ? 0 : eligibleCount % teamSize;
+  const minRequired = is1v1 ? 2 : teamSize * 2;
 
   return (
     <div className="space-y-8 pb-16">
       {/* Navigation Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <Link
           to={`/tournaments/${id}`}
           className="inline-flex items-center gap-2 text-xs font-bold text-slate-400 hover:text-white"
         >
           <ArrowLeft className="w-4 h-4" /> Voltar ao Campeonato
         </Link>
-        <Link
-          to={`/tournaments/${id}/live`}
-          className="px-3 py-1.5 rounded-lg bg-purple-900/40 text-purple-300 border border-purple-700/50 text-xs font-bold hover:bg-purple-900/60 transition-colors"
-        >
-          Visualização para Transmissão OBS
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            to={`/tournaments/${id}/live`}
+            className="px-3.5 py-1.5 rounded-lg bg-purple-900/40 text-purple-300 border border-purple-700/50 text-xs font-bold hover:bg-purple-900/60 transition-colors flex items-center gap-1.5"
+          >
+            <Tv className="w-3.5 h-3.5 text-purple-400" />
+            Transmissão OBS
+          </Link>
+        </div>
       </div>
 
       {/* Main Tournament Info */}
       <div className="glass-panel rounded-2xl p-6 border border-cs-border">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <div className="text-xs uppercase font-bold text-cs-orange tracking-wider">
-              Central de Sorteios & Roleta
+            <div className="flex items-center gap-2 text-xs uppercase font-bold text-cs-orange tracking-wider">
+              {is1v1 ? <Swords className="w-4 h-4" /> : <Users className="w-4 h-4" />}
+              Central de Sorteios & Roleta • {modeLabel}
             </div>
             <h1 className="text-3xl font-black font-display text-white mt-1">
               {tournament.name}
             </h1>
-            <p className="text-xs text-slate-400">
-              Formação estrita de equipes 5x5. Total de {eligibleCount} inscritos resultará em{' '}
-              <strong className="text-white">{fullTeamsCount} equipes</strong> e{' '}
-              <strong className="text-amber-400">{reservesCount} reservas auditados</strong>.
+            <p className="text-xs text-slate-400 mt-1">
+              {is1v1
+                ? `Modalidade 1x1 Duelo. Total de ${eligibleCount} duelistas inscritos serão distribuídos por sorteio criptográfico na chave eliminatória.`
+                : `Formação estrita de equipes ${teamSize}x${teamSize}. Total de ${eligibleCount} inscritos resultará em ${fullTeamsCount} equipes completas e ${reservesCount} reservas auditados.`}
             </p>
           </div>
 
           {/* Quick stats pills */}
-          <div className="flex items-center gap-2 text-xs font-mono">
+          <div className="flex items-center gap-2 text-xs font-mono flex-wrap">
             <span className="bg-slate-800 text-slate-300 px-3 py-1.5 rounded-lg border border-slate-700">
               Inscritos: <strong className="text-white">{eligibleCount}</strong>
             </span>
             <span className="bg-slate-800 text-cs-orange px-3 py-1.5 rounded-lg border border-slate-700">
-              Equipes: <strong>{fullTeamsCount}</strong>
+              {is1v1 ? 'Duelistas' : 'Equipes'}: <strong>{fullTeamsCount}</strong>
             </span>
             <span className="bg-slate-800 text-amber-400 px-3 py-1.5 rounded-lg border border-slate-700">
               Reservas: <strong>{reservesCount}</strong>
@@ -155,13 +179,15 @@ export function TournamentDrawPage({ params }: { params: Record<string, string> 
         <div className="glass-panel rounded-3xl p-8 border border-cs-border max-w-2xl mx-auto space-y-6">
           <div className="text-center space-y-2">
             <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-cs-orange to-amber-500 mx-auto flex items-center justify-center text-cs-dark shadow-glow-orange">
-              <Trophy className="w-8 h-8 stroke-[2.5]" />
+              {is1v1 ? <Swords className="w-8 h-8 stroke-[2.5]" /> : <Trophy className="w-8 h-8 stroke-[2.5]" />}
             </div>
             <h2 className="text-2xl font-bold font-display text-white">
-              Configurar Sorteio Oficial
+              {is1v1 ? 'Configurar Sorteio dos Duelistas' : `Configurar Sorteio de Equipes (${modeLabel})`}
             </h2>
             <p className="text-xs text-slate-400 max-w-md mx-auto">
-              Selecione o algoritmo de distribuição. O sorteio oficial é executado no servidor Neon com aleatoriedade criptograficamente segura antes da animação da roleta.
+              {is1v1
+                ? 'O sorteio oficial distribui a ordem dos duelistas na chave de eliminação simples com aleatoriedade criptograficamente segura no Neon.'
+                : `Selecione o modo de distribuição. Equipes com exatamente ${teamSize} jogadores serão formadas antes da reprodução animada da roleta.`}
             </p>
           </div>
 
@@ -180,7 +206,7 @@ export function TournamentDrawPage({ params }: { params: Record<string, string> 
                 }`}
               >
                 <div className="font-bold text-sm text-white">100% Aleatório</div>
-                <div className="text-[11px] text-slate-400 mt-1">Chances iguais com Fisher-Yates seguro.</div>
+                <div className="text-[11px] text-slate-400 mt-1">Chances iguais com Fisher-Yates seguro no servidor.</div>
               </button>
 
               <button
@@ -192,8 +218,15 @@ export function TournamentDrawPage({ params }: { params: Record<string, string> 
                     : 'bg-cs-surface border-cs-border text-slate-400 hover:text-white'
                 }`}
               >
-                <div className="font-bold text-sm text-white">Balanceado</div>
-                <div className="text-[11px] text-slate-400 mt-1">Snake draft por rating para equilibrar times.</div>
+                <div className="flex items-center justify-between">
+                  <div className="font-bold text-sm text-white">Balanceado</div>
+                  <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-cyan-950/70 text-cyan-300 border border-cyan-500/30">
+                    Steam Elo
+                  </span>
+                </div>
+                <div className="text-[11px] text-slate-400 mt-1">
+                  Snake draft por Nível Steam e horas de CS2 para equilibrar forças perfeitamente.
+                </div>
               </button>
 
               <button
@@ -206,14 +239,14 @@ export function TournamentDrawPage({ params }: { params: Record<string, string> 
                 }`}
               >
                 <div className="font-bold text-sm text-white">Por Capitães</div>
-                <div className="text-[11px] text-slate-400 mt-1">Top jogadores lideram cada elenco.</div>
+                <div className="text-[11px] text-slate-400 mt-1">Top jogadores lideram as pontas da chave ou elencos.</div>
               </button>
             </div>
           </div>
 
-          {eligibleCount < 10 ? (
+          {eligibleCount < minRequired ? (
             <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs">
-              Mínimo de 10 inscritos (2 equipes de 5) necessário para iniciar. Atualmente há apenas {eligibleCount} inscritos.
+              Mínimo de {minRequired} inscritos ({is1v1 ? '2 duelistas' : `2 equipes de ${teamSize}`}) necessário para iniciar. Atualmente há apenas {eligibleCount} inscritos.
             </div>
           ) : (
             <button
@@ -221,7 +254,11 @@ export function TournamentDrawPage({ params }: { params: Record<string, string> 
               disabled={isExecutingDraw}
               className="w-full py-4 rounded-2xl bg-gradient-to-r from-cs-orange to-amber-500 hover:from-orange-600 hover:to-amber-600 text-cs-dark font-black font-display text-xl tracking-wider shadow-glow-orange transition-all disabled:opacity-50"
             >
-              {isExecutingDraw ? 'Gravando no Neon...' : 'Sortear Equipes e Iniciar Roleta'}
+              {isExecutingDraw
+                ? 'Gravando no Neon...'
+                : is1v1
+                ? 'Sortear Duelistas e Iniciar Roleta'
+                : `Sortear Equipes (${teamSize}x${teamSize}) e Iniciar Roleta`}
             </button>
           )}
         </div>
@@ -229,7 +266,7 @@ export function TournamentDrawPage({ params }: { params: Record<string, string> 
         /* Roulette is Active or Teams are drawn */
         <div className="space-y-8">
           <RouletteWheel
-            candidates={registrations.map(r => ({
+            candidates={activeRegistrations.map(r => ({
               id: r.player_id,
               nickname: r.nickname,
               avatarUrl: r.avatar_url,
@@ -238,7 +275,10 @@ export function TournamentDrawPage({ params }: { params: Record<string, string> 
             steps={
               drawResult?.animationSteps ||
               existingTeams.flatMap(t =>
-                (t.members || []).map((m: any, idx: number) => ({
+                (t.members && t.members.length > 0
+                  ? t.members
+                  : [{ player_id: t.captain_id, nickname: t.name, avatar_url: null, is_captain: true }]
+                ).map((m: any, idx: number) => ({
                   order: idx + 1,
                   playerId: m.player_id,
                   playerNickname: m.nickname,
@@ -258,10 +298,10 @@ export function TournamentDrawPage({ params }: { params: Record<string, string> 
                 Segunda Etapa do Torneio
               </div>
               <h3 className="text-xl font-bold font-display text-white mt-0.5">
-                Chaveamento Mata-Mata e Confrontos
+                Chaveamento Mata-Mata e Confrontos {modeLabel}
               </h3>
               <p className="text-xs text-slate-400">
-                Gere automaticamente as chaves de eliminação simples com distribuição de BYEs.
+                Gere automaticamente as chaves de eliminação simples MD1 com distribuição justa de BYEs.
               </p>
             </div>
 

@@ -16,11 +16,12 @@ export interface DrawStep {
 interface RouletteWheelProps {
   candidates: { id: string; nickname: string; avatarUrl?: string | null; preferredRole?: string }[];
   steps: DrawStep[];
+  targetTeamSize?: number;
   onComplete?: () => void;
   isLiveMode?: boolean;
 }
 
-export function RouletteWheel({ candidates, steps, onComplete, isLiveMode = false }: RouletteWheelProps) {
+export function RouletteWheel({ candidates, steps, targetTeamSize = 5, onComplete, isLiveMode = false }: RouletteWheelProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -360,7 +361,7 @@ export function RouletteWheel({ candidates, steps, onComplete, isLiveMode = fals
             ) : (
               <div className="flex items-center gap-2.5 px-8 py-4 bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 font-black font-display text-lg tracking-wide rounded-2xl shadow-glow-orange">
                 <CheckCircle2 className="w-6 h-6 text-emerald-400" />
-                Sorteio de Todas as Equipes Concluído!
+                {targetTeamSize === 1 ? 'Sorteio de Todos os Duelistas Concluído!' : 'Sorteio de Todas as Equipes Concluído!'}
               </div>
             )}
           </div>
@@ -386,8 +387,12 @@ export function RouletteWheel({ candidates, steps, onComplete, isLiveMode = fals
                     {selectedWinner.playerNickname}
                   </div>
                   <div className="text-sm text-slate-300 mt-0.5">
-                    Alocado em: <span className="font-black text-amber-300 font-display text-base">{selectedWinner.teamName}</span>
-                    {selectedWinner.isCaptain && (
+                    {targetTeamSize === 1 ? (
+                      <>Posição na chave: <span className="font-black text-amber-300 font-display text-base">Seed #{selectedWinner.teamSeed}</span></>
+                    ) : (
+                      <>Alocado em: <span className="font-black text-amber-300 font-display text-base">{selectedWinner.teamName}</span></>
+                    )}
+                    {selectedWinner.isCaptain && targetTeamSize > 1 && (
                       <span className="ml-2 text-[10px] bg-amber-400 text-black px-2 py-0.5 rounded-full font-black tracking-wider uppercase">
                         CAPITÃO
                       </span>
@@ -405,11 +410,11 @@ export function RouletteWheel({ candidates, steps, onComplete, isLiveMode = fals
             </div>
           )}
 
-          {/* Teams Grid (Filling up in real time) */}
+          {/* Teams / Duelists Grid (Filling up in real time) */}
           <div className="space-y-3 max-h-[380px] overflow-y-auto pr-2">
             <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
               <Shield className="w-4 h-4 text-cs-orange" />
-              Equipes Formadas ({Object.keys(assignedTeams).length})
+              {targetTeamSize === 1 ? 'Duelistas Sorteados' : 'Equipes Formadas'} ({Object.keys(assignedTeams).length})
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {Object.entries(assignedTeams).map(([teamName, members]) => (
@@ -420,17 +425,17 @@ export function RouletteWheel({ candidates, steps, onComplete, isLiveMode = fals
                   <div className="font-display font-black text-white text-base flex justify-between items-center mb-2.5 pb-2 border-b border-white/5">
                     <span className="truncate">{teamName}</span>
                     <span className="text-xs text-amber-400 font-mono font-bold bg-amber-500/10 px-2 py-0.5 rounded-full">
-                      {members.length}/5
+                      {members.length}/{targetTeamSize}
                     </span>
                   </div>
                   <div className="space-y-1.5">
                     {members.map(m => (
                       <div key={m.playerId} className="text-xs text-slate-300 flex items-center justify-between bg-slate-900/50 px-2 py-1 rounded-lg">
                         <span className="truncate font-semibold">{m.playerNickname}</span>
-                        {m.isCaptain && <span className="text-[9px] bg-amber-400 text-black px-1.5 py-0.2 rounded font-black">CAP</span>}
+                        {m.isCaptain && targetTeamSize > 1 && <span className="text-[9px] bg-amber-400 text-black px-1.5 py-0.2 rounded font-black">CAP</span>}
                       </div>
                     ))}
-                    {Array.from({ length: 5 - members.length }).map((_, i) => (
+                    {Array.from({ length: Math.max(0, targetTeamSize - members.length) }).map((_, i) => (
                       <div key={i} className="text-[11px] text-slate-600 italic px-2 py-0.5 border border-dashed border-slate-800 rounded">
                         - Vaga aberta -
                       </div>
