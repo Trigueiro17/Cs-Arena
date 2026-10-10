@@ -74,7 +74,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         body: JSON.stringify({ email, password }),
       });
 
-      const data = await res.json();
+      const text = await res.text();
+      let data: any = {};
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        return { success: false, error: 'Erro de comunicação com o servidor.' };
+      }
+
       if (!res.ok) {
         return { success: false, error: data.error || 'Credenciais inválidas.' };
       }
@@ -96,7 +103,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         body: JSON.stringify({ name, email, password }),
       });
 
-      const data = await res.json();
+      const text = await res.text();
+      let data: any = {};
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        return { success: false, error: 'Erro de comunicação com o servidor.' };
+      }
+
       if (!res.ok) {
         return { success: false, error: data.error || 'Falha ao cadastrar usuário.' };
       }
