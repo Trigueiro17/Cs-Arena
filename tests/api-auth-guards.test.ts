@@ -4,7 +4,9 @@ import { issueAccessToken } from '../server/lib/jwt';
 import { requireAdmin } from '../server/utils';
 import { sql } from '../server/db';
 
-describe('CS Arena — Security & RBAC Guards', () => {
+const hasDatabaseUrl = Boolean(process.env.DATABASE_URL);
+
+describe.skipIf(!hasDatabaseUrl)('CS Arena — Security & RBAC Guards', () => {
   let playerToken: string = '';
   let adminToken: string = '';
 

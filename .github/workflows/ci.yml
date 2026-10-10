@@ -30,4 +30,7 @@ jobs:
         run: npm test
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          AUTH_SECRET: ${{ secrets.AUTH_SECRET || 'cs-arena-ci-secret-key-32-chars-long' }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET || 'cs-arena-ci-secret-key-32-chars-long' }}
+          JWT_ISSUER: cs-arena
+          JWT_AUDIENCE: cs-arena-web
+          APP_URL: http://localhost:5173
