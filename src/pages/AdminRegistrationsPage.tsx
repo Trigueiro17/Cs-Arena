@@ -2,7 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import { Link, useRouter } from '../lib/router';
 import { useAuth } from '../context/AuthContext';
-import { ArrowLeft, Users, Search, Shield, Filter, UserCheck } from 'lucide-react';
+import { ArrowLeft, Users, Search, Shield, Filter, UserCheck, XCircle, Swords } from 'lucide-react';
+import { GameMode, getGameModeLabel } from '../lib/tournament-engine';
 
 export function AdminRegistrationsPage({ params }: { params: Record<string, string> }) {
   const { id } = params;
@@ -12,35 +13,55 @@ export function AdminRegistrationsPage({ params }: { params: Record<string, stri
   const [tournament, setTournament] = useState<any | null>(null);
   const [registrations, setRegistrations] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'confirmed' | 'reserve'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'confirmed' | 'reserve' | 'withdrawn'>('all');
   const [loading, setLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState(false);
 
   if (!isAdmin) {
     navigate('/login');
     return null;
   }
 
-  useEffect(() => {
-    async function load() {
-      try {
-        const [tRes, rRes] = await Promise.all([
-          api.getTournament(id),
-          api.getRegistrations(id),
-        ]);
-        setTournament(tRes.tournament);
-        setRegistrations(rRes.registrations || []);
-      } catch (e) {
-        console.error(e);
-      } finally {
-        setLoading(false);
-      }
+  const loadData = async () => {
+    try {
+      const [tRes, rRes] = await Promise.all([
+        api.getTournament(id),
+        api.getRegistrations(id),
+      ]);
+      setTournament(tRes.tournament);
+      setRegistrations(rRes.registrations || []);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
     }
-    load();
+  };
+
+  useEffect(() => {
+    loadData();
   }, [id]);
+
+  const handleCancelRegistration = async (playerId: string, nickname: string) => {
+    if (!confirm(`Deseja cancelar e retirar a inscrição do jogador ${nickname}?`)) return;
+    setActionLoading(true);
+    try {
+      await api.cancelRegistration(id, playerId);
+      await loadData();
+    } catch (err: any) {
+      alert(err.message || 'Erro ao cancelar inscrição');
+    } finally {
+      setActionLoading(false);
+    }
+  };
 
   if (loading) {
     return <div className="text-center py-20 text-slate-400">Carregando inscrições...</div>;
   }
+
+  const gameMode: GameMode = (tournament?.game_mode || '5v5') as GameMode;
+  const teamSize = Number(tournament?.team_size) || 5;
+  const is1v1 = teamSize === 1 || gameMode === '1v1';
+  const modeLabel = getGameModeLabel(gameMode);
 
   const filtered = registrations.filter(r => {
     const matchesSearch = r.nickname.toLowerCase().includes(searchTerm.toLowerCase());
@@ -48,8 +69,9 @@ export function AdminRegistrationsPage({ params }: { params: Record<string, stri
     return matchesSearch && matchesStatus;
   });
 
-  const fullTeams = Math.floor(registrations.length / 5);
-  const reserves = registrations.length % 5;
+  const activeRegistrations = registrations.filter(r => r.status !== 'withdrawn');
+  const fullTeams = is1v1 ? activeRegistrations.length : Math.floor(activeRegistrations.length / teamSize);
+  const reserves = is1v1 ? 0 : activeRegistrations.length % teamSize;
 
   return (
     <div className="space-y-6 pb-16">
@@ -63,14 +85,17 @@ export function AdminRegistrationsPage({ params }: { params: Record<string, stri
       <div className="glass-panel rounded-2xl p-6 border border-cs-border">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <div className="text-xs uppercase font-bold text-cs-orange tracking-wider">
-              Painel de Inscrições
+            <div className="text-xs uppercase font-bold text-cs-orange tracking-wider flex items-center gap-1.5">
+              {is1v1 ? <Swords className="w-4 h-4" /> : <Users className="w-4 h-4" />}
+              Painel de Inscrições • {modeLabel}
             </div>
             <h1 className="text-3xl font-black font-display text-white mt-1">
               Inscritos em {tournament?.name}
             </h1>
-            <p className="text-xs text-slate-400">
-              Total de {registrations.length} jogadores inscritos • {fullTeams} equipes completas de 5 • {reserves} reservas
+            <p className="text-xs text-slate-400 mt-0.5">
+              {is1v1
+                ? `Total de ${activeRegistrations.length} duelistas inscritos para chave individual mata-mata.`
+                : `Total de ${activeRegistrations.length} jogadores ativos • ${fullTeams} equipes completas de ${teamSize} • ${reserves} reservas`}
             </p>
           </div>
         </div>
@@ -99,21 +124,23 @@ export function AdminRegistrationsPage({ params }: { params: Record<string, stri
             <option value="all">Todos os Status</option>
             <option value="confirmed">Confirmados</option>
             <option value="reserve">Reservas</option>
+            <option value="withdrawn">Cancelados / Desistentes</option>
           </select>
         </div>
       </div>
 
-      {/* Registrations List */}
+      {/* Registrations Table */}
       <div className="glass-panel rounded-2xl border border-cs-border overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs text-slate-300">
-            <thead className="bg-slate-900/80 uppercase font-bold text-slate-400 tracking-wider">
+          <table className="w-full text-left text-sm text-slate-300">
+            <thead className="bg-slate-900/80 text-xs uppercase font-bold text-slate-400 tracking-wider">
               <tr>
                 <th className="py-3 px-6">Jogador</th>
                 <th className="py-3 px-6">Função</th>
                 <th className="py-3 px-6">Skill Rating</th>
                 <th className="py-3 px-6">Steam ID</th>
                 <th className="py-3 px-6">Status</th>
+                <th className="py-3 px-6 text-right">Ação</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800">
@@ -141,11 +168,29 @@ export function AdminRegistrationsPage({ params }: { params: Record<string, stri
                       className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase ${
                         r.status === 'reserve'
                           ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
+                          : r.status === 'withdrawn'
+                          ? 'bg-red-500/10 text-red-400 border border-red-500/30'
                           : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
                       }`}
                     >
-                      {r.status === 'reserve' ? 'Reserva' : 'Confirmado'}
+                      {r.status === 'reserve'
+                        ? 'Reserva'
+                        : r.status === 'withdrawn'
+                        ? 'Cancelado'
+                        : 'Confirmado'}
                     </span>
+                  </td>
+                  <td className="py-3 px-6 text-right">
+                    {r.status !== 'withdrawn' && (
+                      <button
+                        onClick={() => handleCancelRegistration(r.player_id, r.nickname)}
+                        disabled={actionLoading}
+                        className="p-1 text-slate-400 hover:text-red-400 transition-colors"
+                        title="Cancelar inscrição"
+                      >
+                        <XCircle className="w-4 h-4" />
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}

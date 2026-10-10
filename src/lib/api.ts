@@ -1,5 +1,6 @@
 // Typed API Client for CS Arena
 import { getAccessToken } from './token-store';
+import { GameMode } from './tournament-engine';
 
 function getHeaders(): HeadersInit {
   const token = getAccessToken();
@@ -14,8 +15,13 @@ function getHeaders(): HeadersInit {
 
 export const api = {
   // Tournaments
-  async getTournaments() {
-    const res = await fetch('/api/tournaments', { headers: getHeaders() });
+  async getTournaments(params?: { gameMode?: string; status?: string }) {
+    const query = new URLSearchParams();
+    if (params?.gameMode) query.set('gameMode', params.gameMode);
+    if (params?.status) query.set('status', params.status);
+    const qs = query.toString() ? `?${query.toString()}` : '';
+
+    const res = await fetch(`/api/tournaments${qs}`, { headers: getHeaders() });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.error || 'Falha ao buscar campeonatos');
@@ -32,7 +38,17 @@ export const api = {
     return res.json();
   },
 
-  async createTournament(data: { name: string; slug: string; description?: string; bestOf?: number; rules?: string }) {
+  async createTournament(data: {
+    name: string;
+    slug: string;
+    description?: string;
+    gameMode?: GameMode;
+    teamSize?: number;
+    bestOf?: number;
+    thirdPlaceEnabled?: boolean;
+    mapSelection?: string;
+    rules?: string;
+  }) {
     const res = await fetch('/api/tournaments', {
       method: 'POST',
       headers: getHeaders(),
@@ -43,7 +59,10 @@ export const api = {
     return result;
   },
 
-  async updateTournament(id: string, data: { name?: string; description?: string; rules?: string; status?: string }) {
+  async updateTournament(
+    id: string,
+    data: { name?: string; description?: string; rules?: string; status?: string }
+  ) {
     const res = await fetch(`/api/tournaments/${id}`, {
       method: 'PATCH',
       headers: getHeaders(),
@@ -66,6 +85,17 @@ export const api = {
     });
     const result = await res.json();
     if (!res.ok) throw new Error(result.error || 'Falha na inscrição');
+    return result;
+  },
+
+  async cancelRegistration(tournamentId: string, playerId: string) {
+    const res = await fetch(`/api/tournaments/${tournamentId}/cancel-registration`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ playerId }),
+    });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error || 'Falha ao cancelar inscrição');
     return result;
   },
 
@@ -132,16 +162,23 @@ export const api = {
 
   async submitMatchResult(
     matchId: string,
-    maps: { orderNumber: number; mapName: string; scoreA: number; scoreB: number }[]
+    maps: { orderNumber: number; mapName: string; scoreA: number; scoreB: number }[],
+    evidenceUrl?: string
   ) {
     const res = await fetch(`/api/matches/${matchId}/results`, {
       method: 'POST',
       headers: getHeaders(),
-      body: JSON.stringify({ maps }),
+      body: JSON.stringify({ maps, evidenceUrl }),
     });
     const result = await res.json();
     if (!res.ok) throw new Error(result.error || 'Falha ao registrar placar');
     return result;
+  },
+
+  async getRanking(tournamentId: string) {
+    const res = await fetch(`/api/tournaments/${tournamentId}/ranking`, { headers: getHeaders() });
+    if (!res.ok) throw new Error('Falha ao buscar classificação do torneio');
+    return res.json();
   },
 
   // Audit
