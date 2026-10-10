@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { router } from '../api/index';
+import { router } from '../server/index';
 
 const hasDatabaseUrl = Boolean(process.env.DATABASE_URL);
 

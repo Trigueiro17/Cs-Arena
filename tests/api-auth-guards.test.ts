@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createSessionToken } from '../src/lib/auth';
-import { requireAdmin, getAuthUser } from '../api/utils';
+import { requireAdmin, getAuthUser } from '../server/utils';
 
 describe('CS Arena — Security & RBAC Guards', () => {
   it('Caso 11a: Requisição sem token deve retornar 401 Unauthorized', async () => {

@@ -14,7 +14,7 @@ export default defineConfig({
           if (req.url && req.url.startsWith('/api')) {
             try {
               // Dynamically import API router
-              const { router } = await server.ssrLoadModule('/api/index.ts');
+              const { router } = await server.ssrLoadModule('/server/index.ts');
               const host = req.headers.host || 'localhost:5173';
               const fullUrl = `http://${host}${req.url}`;
 
