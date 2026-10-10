@@ -99,13 +99,11 @@ export default async function handler(req: any, res?: any) {
         req.url ||
         '/api';
 
-      // If rawPath has catch-all token, resolve using query
-      if (rawPath.includes('[...')) {
-        const qPath = req.query?.path || req.query?.all || req.query?.slug;
-        if (qPath) {
-          const joined = Array.isArray(qPath) ? qPath.join('/') : qPath;
-          rawPath = `/api/${joined}`;
-        }
+      // If query path is provided by Vercel rewrite or catch-all, resolve cleanly
+      const qPath = req.query?.path || req.query?.all || req.query?.slug;
+      if (qPath) {
+        const joined = Array.isArray(qPath) ? qPath.join('/') : qPath;
+        rawPath = `/api/${joined}`;
       }
 
       const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost';
