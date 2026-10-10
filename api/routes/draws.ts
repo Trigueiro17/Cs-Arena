@@ -64,7 +64,7 @@ export async function handleDraws(req: Request, tournamentId: string, action: st
         );
       }
 
-      const playersData: PlayerData[] = registrants.map(r => ({
+      const playersData: PlayerData[] = registrants.map((r: any) => ({
         id: r.id,
         nickname: r.nickname,
         steamId: r.steam_id,
@@ -210,7 +210,7 @@ export async function handleDraws(req: Request, tournamentId: string, action: st
 
       // Generate Single Elimination Bracket with proper BYE math
       const generated = generateSingleEliminationBracket(
-        teams.map(t => ({ id: t.id, seed: t.seed, name: t.name })),
+        teams.map((t: any) => ({ id: t.id, seed: t.seed, name: t.name })),
         bestOf
       );
 

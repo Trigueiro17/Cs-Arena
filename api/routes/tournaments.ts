@@ -278,7 +278,7 @@ export async function handleTournaments(req: Request, segments: string[]): Promi
         mapsByMatch.get(mapItem.match_id).push(mapItem);
       }
 
-      const matchesWithMaps = matchesList.map(m => ({
+      const matchesWithMaps = matchesList.map((m: any) => ({
         ...m,
         maps: mapsByMatch.get(m.id) || [],
       }));
