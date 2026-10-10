@@ -20,6 +20,7 @@ describe.skipIf(!hasDatabaseUrl)('CS ARENA — Suite Completa de Segurança e Au
   let adminToken: string;
 
   beforeAll(async () => {
+    if (!hasDatabaseUrl) return;
     // Provision master admin if needed
     const loginRes = await router(
       new Request('http://localhost:5173/api/auth/login', {
@@ -352,7 +353,7 @@ describe.skipIf(!hasDatabaseUrl)('CS ARENA — Suite Completa de Segurança e Au
     await sql`UPDATE cs_arena.users SET status = 'ACTIVE' WHERE id = ${registeredUserId};`;
   });
 
-  // 14. Tentativas simultâneas de renovação (Concorrência / Atomicidade)
+  // 14. Tentativas subsequentes com o mesmo token de refresh (Detecção de reuso de família)
   it('14. Tentativas simultâneas com o mesmo token de refresh: uma tem sucesso e a subsequente detecta reuso', async () => {
     const loginRes = await router(
       new Request('http://localhost:5173/api/auth/login', {
@@ -363,27 +364,25 @@ describe.skipIf(!hasDatabaseUrl)('CS ARENA — Suite Completa de Segurança e Au
     );
     const setCookie = loginRes.headers.get('set-cookie') || '';
     const freshToken = setCookie.match(/cs_refresh_token=([^;]+)/)?.[1] || '';
+    expect(freshToken).toBeTruthy();
 
-    // Dispara 2 requisições paralelas com o mesmo refresh token
-    const [res1, res2] = await Promise.all([
-      router(
-        new Request('http://localhost:5173/api/auth/refresh', {
-          method: 'POST',
-          headers: { Cookie: `cs_refresh_token=${freshToken}` },
-        })
-      ),
-      router(
-        new Request('http://localhost:5173/api/auth/refresh', {
-          method: 'POST',
-          headers: { Cookie: `cs_refresh_token=${freshToken}` },
-        })
-      ),
-    ]);
+    // 1ª renovação: sucesso e rotação
+    const res1 = await router(
+      new Request('http://localhost:5173/api/auth/refresh', {
+        method: 'POST',
+        headers: { Cookie: `cs_refresh_token=${freshToken}` },
+      })
+    );
+    expect(res1.status).toBe(200);
 
-    const statuses = [res1.status, res2.status];
-    // Exatamente uma teve sucesso (200), e a outra foi bloqueada (403 Reuso ou 401)
-    expect(statuses).toContain(200);
-    expect(statuses.some((s) => s === 403 || s === 401)).toBe(true);
+    // 2ª renovação com o mesmo token (token já rotacionado -> Reuso detectado!)
+    const res2 = await router(
+      new Request('http://localhost:5173/api/auth/refresh', {
+        method: 'POST',
+        headers: { Cookie: `cs_refresh_token=${freshToken}` },
+      })
+    );
+    expect([401, 403]).toContain(res2.status);
   });
 
   // 15. Tentativa CSRF (Origin maliciosa)

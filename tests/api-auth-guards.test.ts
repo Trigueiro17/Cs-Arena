@@ -11,6 +11,7 @@ describe.skipIf(!hasDatabaseUrl)('CS Arena — Security & RBAC Guards', () => {
   let adminToken: string = '';
 
   beforeAll(async () => {
+    if (!hasDatabaseUrl) return;
     const [admin] = await sql`
       SELECT id, email, name, role FROM cs_arena.users WHERE LOWER(email) = 'admin@csarena.com' LIMIT 1;
     `;
