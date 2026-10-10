@@ -10,12 +10,16 @@ export const users = csSchema.table('users', {
   name: text('name').notNull(),
   nickname: text('nickname'),
   email: text('email').notNull().unique(),
-  passwordHash: text('password_hash').notNull(),
+  passwordHash: text('password_hash'),
+  steamId: text('steam_id'),
+  avatarUrl: text('avatar_url'),
   role: text('role', { enum: ['ADMIN', 'ORGANIZER', 'PLAYER'] }).default('PLAYER').notNull(),
   status: text('status', { enum: ['ACTIVE', 'INACTIVE', 'SUSPENDED'] }).default('ACTIVE').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-});
+}, (table) => ({
+  userSteamIdIdx: index('users_steam_id_idx').on(table.steamId),
+}));
 
 // Auth Sessions (Revocable Sessions & Refresh Token Rotation with Family Reuse Detection)
 export const authSessions = csSchema.table('auth_sessions', {
@@ -70,13 +74,22 @@ export const passwordResetTokens = csSchema.table('password_reset_tokens', {
 // Players (can register for tournaments)
 export const players = csSchema.table('players', {
   id: uuid('id').defaultRandom().primaryKey(),
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
   nickname: text('nickname').notNull().unique(),
   steamId: text('steam_id'),
   avatarUrl: text('avatar_url'),
   preferredRole: text('preferred_role', { enum: ['AWP', 'Entry', 'Support', 'IGL', 'Flex'] }).default('Flex').notNull(),
   skillRating: integer('skill_rating').default(1000).notNull(),
+  steamLevel: integer('steam_level'),
+  cs2Hours: integer('cs2_hours'),
+  cs2Kills: integer('cs2_kills'),
+  cs2Deaths: integer('cs2_deaths'),
+  steamSyncedAt: timestamp('steam_synced_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-});
+}, (table) => ({
+  playerUserIdIdx: index('player_user_id_idx').on(table.userId),
+  playerSteamIdIdx: index('player_steam_id_idx').on(table.steamId),
+}));
 
 // Tournaments
 export const tournaments = csSchema.table('tournaments', {

@@ -5,3 +5,4 @@ export * from './draw.service';
 export * from './bracket.service';
 export * from './match.service';
 export * from './ranking.service';
+export * from './steam.service';

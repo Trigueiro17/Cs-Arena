@@ -13,6 +13,7 @@ import { TournamentLivePage } from './pages/TournamentLivePage';
 import { AdminDashboardPage } from './pages/AdminDashboardPage';
 import { AdminNewTournamentPage } from './pages/AdminNewTournamentPage';
 import { AdminRegistrationsPage } from './pages/AdminRegistrationsPage';
+import { SteamCallbackPage } from './pages/SteamCallbackPage';
 import { Shield, Trophy, Database, Heart } from 'lucide-react';
 
 function ProtectedAdminRoute({
@@ -74,6 +75,7 @@ function AppLayout() {
       <main className={`flex-1 ${!isLiveStream ? 'max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8 w-full' : ''}`}>
         <Route path="/" component={LandingPage} />
         <Route path="/login" component={LoginPage} />
+        <Route path="/auth/callback" component={SteamCallbackPage} />
         <Route path="/admin" component={() => <ProtectedAdminRoute component={AdminDashboardPage} />} />
         <Route path="/admin/tournaments/new" component={() => <ProtectedAdminRoute component={AdminNewTournamentPage} />} />
         <Route path="/admin/tournaments/:id/registrations" component={({ params }: { params: Record<string, string> }) => <ProtectedAdminRoute component={AdminRegistrationsPage} params={params} />} />

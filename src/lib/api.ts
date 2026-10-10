@@ -187,4 +187,21 @@ export const api = {
     if (!res.ok) throw new Error('Falha ao buscar auditoria');
     return res.json();
   },
+
+  // Steam Auth & Stats
+  async getSteamLoginUrl(): Promise<{ url: string }> {
+    const res = await fetch('/api/auth/steam?format=json');
+    if (!res.ok) throw new Error('Falha ao obter URL de login da Steam');
+    return res.json();
+  },
+
+  async syncSteamProfile(): Promise<{ success: boolean; player: any }> {
+    const res = await fetch('/api/auth/steam/sync', {
+      method: 'POST',
+      headers: getHeaders(),
+    });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error || 'Falha ao sincronizar perfil Steam');
+    return result;
+  },
 };

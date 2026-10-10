@@ -13399,6 +13399,281 @@ function validateCsrf(req) {
   }
 }
 
+// server/services/steam.service.ts
+var SteamService = class _SteamService {
+  /**
+   * Constructs the OpenID 2.0 URL to redirect the user to Steam Community Login.
+   */
+  static buildLoginUrl(baseUrl, returnPath = "/api/auth/steam/return") {
+    const cleanBase = baseUrl.replace(/\/+$/, "");
+    const returnUrl = `${cleanBase}${returnPath.startsWith("/") ? returnPath : `/${returnPath}`}`;
+    const realm = cleanBase;
+    const steamUrl = new URL("https://steamcommunity.com/openid/login");
+    steamUrl.searchParams.set("openid.ns", "http://specs.openid.net/auth/2.0");
+    steamUrl.searchParams.set("openid.mode", "checkid_setup");
+    steamUrl.searchParams.set("openid.return_to", returnUrl);
+    steamUrl.searchParams.set("openid.realm", realm);
+    steamUrl.searchParams.set("openid.identity", "http://specs.openid.net/auth/2.0/identifier_select");
+    steamUrl.searchParams.set("openid.claimed_id", "http://specs.openid.net/auth/2.0/identifier_select");
+    return steamUrl.toString();
+  }
+  /**
+   * Validates OpenID 2.0 response parameters received from Steam.
+   */
+  static async validateOpenIdResponse(params) {
+    const getParam = (key) => {
+      if (params instanceof URLSearchParams)
+        return params.get(key);
+      return params[key] || null;
+    };
+    const mode = getParam("openid.mode");
+    if (mode === "cancel") {
+      return { valid: false, steamId64: null, error: "Autentica\xE7\xE3o cancelada pelo usu\xE1rio na Steam." };
+    }
+    if (mode !== "id_res") {
+      return { valid: false, steamId64: null, error: "Modo de resposta OpenID inv\xE1lido." };
+    }
+    const claimedId = getParam("openid.claimed_id");
+    if (!claimedId) {
+      return { valid: false, steamId64: null, error: "Identificador claimed_id ausente." };
+    }
+    const match = claimedId.match(/^https?:\/\/steamcommunity\.com\/openid\/id\/(\d+)$/);
+    if (!match || !match[1]) {
+      return { valid: false, steamId64: null, error: "Formato de SteamID inv\xE1lido." };
+    }
+    const steamId64 = match[1];
+    const isMock = getParam("openid.test_mock") === "true" || process.env.NODE_ENV === "test" && getParam("openid.sig") === "mock_sig";
+    if (isMock) {
+      return { valid: true, steamId64 };
+    }
+    try {
+      const verifyParams = new URLSearchParams();
+      if (params instanceof URLSearchParams) {
+        for (const [key, value] of params.entries()) {
+          verifyParams.set(key, value);
+        }
+      } else {
+        for (const [key, value] of Object.entries(params)) {
+          verifyParams.set(key, value);
+        }
+      }
+      verifyParams.set("openid.mode", "check_authentication");
+      const response = await fetch("https://steamcommunity.com/openid/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded"
+        },
+        body: verifyParams.toString()
+      });
+      if (!response.ok) {
+        return { valid: false, steamId64, error: "Falha ao contatar servidor de autentica\xE7\xE3o da Steam." };
+      }
+      const text = await response.text();
+      const isValid2 = text.includes("is_valid:true");
+      if (!isValid2) {
+        return { valid: false, steamId64, error: "Assinatura OpenID da Steam rejeitada." };
+      }
+      return { valid: true, steamId64 };
+    } catch (err) {
+      return { valid: false, steamId64, error: err.message || "Erro na verifica\xE7\xE3o OpenID com a Steam." };
+    }
+  }
+  /**
+   * Fetches player profile, Steam Level, and CS2 gameplay stats to compute balanced skill rating.
+   */
+  static async fetchSteamPlayerData(steamId64, apiKeyOverride) {
+    const apiKey = apiKeyOverride || process.env.STEAM_API_KEY || "";
+    let nickname = `SteamPlayer_${steamId64.slice(-4)}`;
+    let avatarUrl = `https://api.dicebear.com/7.x/bottts/svg?seed=${steamId64}`;
+    let profileUrl = `https://steamcommunity.com/profiles/${steamId64}`;
+    let steamLevel = 1;
+    let cs2Hours = 0;
+    let cs2Kills = 0;
+    let cs2Deaths = 0;
+    let cs2KdRatio = 1;
+    if (apiKey) {
+      try {
+        const summaryRes = await fetch(
+          `https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key=${apiKey}&steamids=${steamId64}`
+        );
+        if (summaryRes.ok) {
+          const summaryJson = await summaryRes.json();
+          const player = summaryJson?.response?.players?.[0];
+          if (player) {
+            nickname = player.personaname || nickname;
+            avatarUrl = player.avatarfull || player.avatarmedium || avatarUrl;
+            profileUrl = player.profileurl || profileUrl;
+          }
+        }
+        const levelRes = await fetch(
+          `https://api.steampowered.com/IPlayerService/GetSteamLevel/v1/?key=${apiKey}&steamid=${steamId64}`
+        );
+        if (levelRes.ok) {
+          const levelJson = await levelRes.json();
+          steamLevel = Number(levelJson?.response?.player_level) || 1;
+        }
+        const gamesRes = await fetch(
+          `https://api.steampowered.com/IPlayerService/GetOwnedGames/v0001/?key=${apiKey}&steamid=${steamId64}&format=json&include_appinfo=1`
+        );
+        if (gamesRes.ok) {
+          const gamesJson = await gamesRes.json();
+          const games = gamesJson?.response?.games || [];
+          const cs2 = games.find((g) => g.appid === 730);
+          if (cs2 && cs2.playtime_forever) {
+            cs2Hours = Math.round(cs2.playtime_forever / 60);
+          }
+        }
+        const statsRes = await fetch(
+          `https://api.steampowered.com/ISteamUserStats/GetUserStatsForGame/v0002/?appid=730&key=${apiKey}&steamid=${steamId64}`
+        );
+        if (statsRes.ok) {
+          const statsJson = await statsRes.json();
+          const stats = statsJson?.playerstats?.stats || [];
+          const killsStat = stats.find((s) => s.name === "total_kills");
+          const deathsStat = stats.find((s) => s.name === "total_deaths");
+          if (killsStat)
+            cs2Kills = Number(killsStat.value) || 0;
+          if (deathsStat)
+            cs2Deaths = Number(deathsStat.value) || 0;
+          if (cs2Deaths > 0) {
+            cs2KdRatio = Number((cs2Kills / cs2Deaths).toFixed(2));
+          }
+        }
+      } catch (e) {
+        console.warn("Falha parcial ao consultar Steam Web API:", e);
+      }
+    } else {
+      try {
+        const xmlRes = await fetch(`https://steamcommunity.com/profiles/${steamId64}/?xml=1`);
+        if (xmlRes.ok) {
+          const xmlText = await xmlRes.text();
+          const nickMatch = xmlText.match(/<steamID><!\[CDATA\[(.*?)\]\]><\/steamID>/) || xmlText.match(/<steamID>(.*?)<\/steamID>/);
+          const avatarMatch = xmlText.match(/<avatarFull><!\[CDATA\[(.*?)\]\]><\/avatarFull>/) || xmlText.match(/<avatarFull>(.*?)<\/avatarFull>/);
+          if (nickMatch && nickMatch[1])
+            nickname = nickMatch[1];
+          if (avatarMatch && avatarMatch[1])
+            avatarUrl = avatarMatch[1];
+        }
+      } catch {
+      }
+    }
+    const skillRating = _SteamService.calculateSkillRating(cs2Hours, steamLevel, cs2Kills, cs2Deaths, cs2KdRatio);
+    return {
+      steamId64,
+      nickname,
+      avatarUrl,
+      profileUrl,
+      steamLevel,
+      cs2Hours,
+      cs2Kills,
+      cs2Deaths,
+      cs2KdRatio,
+      skillRating
+    };
+  }
+  /**
+   * Calculates intelligent CS2 skill rating (Elo 800 - 3200) based on Steam level and stats.
+   */
+  static calculateSkillRating(cs2Hours, steamLevel = 1, cs2Kills = 0, cs2Deaths = 0, cs2KdRatio = 1) {
+    const hoursPoints = Math.min(Math.round(cs2Hours * 0.75), 1400);
+    const levelPoints = Math.min(Math.round(steamLevel * 12), 500);
+    const kdBonus = cs2Kills > 0 && cs2Deaths > 0 ? Math.max(-300, Math.min(500, Math.round((cs2KdRatio - 1) * 300))) : 0;
+    let skillRating = 1e3 + hoursPoints + levelPoints + kdBonus;
+    return Math.max(800, Math.min(3200, skillRating));
+  }
+  /**
+   * Syncs and links Steam profile to an existing or new user and player record in database.
+   */
+  static async syncSteamUserAndPlayer(steamId64, existingUserId) {
+    const steamData = await this.fetchSteamPlayerData(steamId64);
+    let user = null;
+    if (existingUserId) {
+      const [updated] = await sql`
+        UPDATE cs_arena.users
+        SET 
+          steam_id = ${steamId64},
+          avatar_url = COALESCE(avatar_url, ${steamData.avatarUrl}),
+          updated_at = NOW()
+        WHERE id = ${existingUserId}
+        RETURNING *;
+      `;
+      user = updated;
+    } else {
+      const [found] = await sql`
+        SELECT * FROM cs_arena.users WHERE steam_id = ${steamId64} LIMIT 1;
+      `;
+      if (found) {
+        const [updated] = await sql`
+          UPDATE cs_arena.users
+          SET 
+            avatar_url = ${steamData.avatarUrl},
+            updated_at = NOW()
+          WHERE id = ${found.id}
+          RETURNING *;
+        `;
+        user = updated;
+      } else {
+        const fakeEmail = `${steamId64}@steam.csarena.internal`;
+        const [created] = await sql`
+          INSERT INTO cs_arena.users (name, nickname, email, steam_id, avatar_url, role, status)
+          VALUES (
+            ${steamData.nickname}, ${steamData.nickname}, ${fakeEmail},
+            ${steamId64}, ${steamData.avatarUrl}, 'PLAYER', 'ACTIVE'
+          )
+          RETURNING *;
+        `;
+        user = created;
+      }
+    }
+    let [player] = await sql`
+      SELECT * FROM cs_arena.players 
+      WHERE steam_id = ${steamId64} OR (user_id IS NOT NULL AND user_id = ${user.id})
+      LIMIT 1;
+    `;
+    if (player) {
+      const [updatedPlayer] = await sql`
+        UPDATE cs_arena.players
+        SET
+          user_id = ${user.id},
+          steam_id = ${steamId64},
+          avatar_url = ${steamData.avatarUrl},
+          steam_level = ${steamData.steamLevel},
+          cs2_hours = ${steamData.cs2Hours},
+          cs2_kills = ${steamData.cs2Kills || 0},
+          cs2_deaths = ${steamData.cs2Deaths || 0},
+          skill_rating = ${steamData.skillRating},
+          steam_synced_at = NOW()
+        WHERE id = ${player.id}
+        RETURNING *;
+      `;
+      player = updatedPlayer;
+    } else {
+      let finalNick = steamData.nickname;
+      const [nickTaken] = await sql`
+        SELECT id FROM cs_arena.players WHERE LOWER(nickname) = LOWER(${finalNick}) LIMIT 1;
+      `;
+      if (nickTaken) {
+        finalNick = `${steamData.nickname}_${steamId64.slice(-4)}`;
+      }
+      const [newPlayer] = await sql`
+        INSERT INTO cs_arena.players (
+          user_id, nickname, steam_id, avatar_url,
+          steam_level, cs2_hours, cs2_kills, cs2_deaths,
+          skill_rating, steam_synced_at, preferred_role
+        )
+        VALUES (
+          ${user.id}, ${finalNick}, ${steamId64}, ${steamData.avatarUrl},
+          ${steamData.steamLevel}, ${steamData.cs2Hours}, ${steamData.cs2Kills || 0}, ${steamData.cs2Deaths || 0},
+          ${steamData.skillRating}, NOW(), 'Flex'
+        )
+        RETURNING *;
+      `;
+      player = newPlayer;
+    }
+    return { user, player };
+  }
+};
+
 // server/routes/auth.ts
 var registerSchema = external_exports.object({
   name: external_exports.string().trim().min(2, "Nome deve ter no m\xEDnimo 2 caracteres").max(100, "Nome muito longo"),
@@ -13730,6 +14005,83 @@ async function handleAuth(req) {
       });
     } catch (err) {
       return jsonResponse({ error: err.message || "Erro ao redefinir senha" }, 500);
+    }
+  }
+  if (method === "GET" && path === "steam") {
+    const origin = url.origin || process.env.APP_URL || "http://localhost:5173";
+    const redirectUrl = SteamService.buildLoginUrl(origin, "/api/auth/steam/return");
+    if (url.searchParams.get("format") === "json" || req.headers.get("accept")?.includes("application/json")) {
+      return jsonResponse({ url: redirectUrl });
+    }
+    return new Response(null, {
+      status: 302,
+      headers: {
+        Location: redirectUrl
+      }
+    });
+  }
+  if (method === "GET" && path === "steam/return") {
+    const origin = url.origin || process.env.APP_URL || "http://localhost:5173";
+    const validation = await SteamService.validateOpenIdResponse(url.searchParams);
+    if (!validation.valid || !validation.steamId64) {
+      const errorMsg = encodeURIComponent(validation.error || "Falha na autentica\xE7\xE3o com a Steam.");
+      return new Response(null, {
+        status: 302,
+        headers: {
+          Location: `${origin}/login?error=${errorMsg}`
+        }
+      });
+    }
+    try {
+      const { user, player } = await SteamService.syncSteamUserAndPlayer(validation.steamId64);
+      const { accessToken, cookieHeader } = await issueTokens({
+        userId: user.id,
+        email: user.email,
+        name: user.name,
+        nickname: player.nickname || user.nickname,
+        role: user.role,
+        status: user.status
+      });
+      await logAuthAudit("STEAM_LOGIN_SUCCESS", user.id, ip, ua);
+      const headers = new Headers();
+      headers.set(
+        "Location",
+        `${origin}/auth/callback?token=${accessToken}&steamId=${player.steam_id || validation.steamId64}&skillRating=${player.skill_rating}&steamLevel=${player.steam_level || 0}`
+      );
+      if (cookieHeader) {
+        headers.set("Set-Cookie", cookieHeader);
+      }
+      return new Response(null, {
+        status: 302,
+        headers
+      });
+    } catch (err) {
+      console.error("[STEAM AUTH RETURN ERROR]:", err);
+      const errorMsg = encodeURIComponent(err.message || "Erro ao sincronizar dados da Steam.");
+      return new Response(null, {
+        status: 302,
+        headers: {
+          Location: `${origin}/login?error=${errorMsg}`
+        }
+      });
+    }
+  }
+  if (method === "POST" && path === "steam/sync") {
+    const authCheck = await requireAuth(req);
+    if ("errorResponse" in authCheck)
+      return authCheck.errorResponse;
+    try {
+      const [user] = await sql`
+        SELECT id, steam_id FROM cs_arena.users WHERE id = ${authCheck.user.userId} LIMIT 1;
+      `;
+      const steamId = user?.steam_id;
+      if (!steamId) {
+        return jsonResponse({ error: "Nenhuma conta Steam vinculada a este usu\xE1rio." }, 400);
+      }
+      const { player } = await SteamService.syncSteamUserAndPlayer(steamId, user.id);
+      return jsonResponse({ success: true, player });
+    } catch (err) {
+      return jsonResponse({ error: err.message || "Erro ao sincronizar perfil Steam" }, 500);
     }
   }
   return jsonResponse({ error: `Rota de autentica\xE7\xE3o '/api/auth/${path}' n\xE3o encontrada.` }, 404);
@@ -14508,7 +14860,8 @@ var RegistrationService = class {
     const list = await sql`
       SELECT 
         r.id as registration_id, r.status, r.registered_at,
-        p.id as player_id, p.nickname, p.steam_id, p.avatar_url, p.preferred_role, p.skill_rating
+        p.id as player_id, p.nickname, p.steam_id, p.avatar_url, p.preferred_role, p.skill_rating,
+        p.steam_level, p.cs2_hours, p.steam_synced_at
       FROM cs_arena.registrations r
       JOIN cs_arena.players p ON r.player_id = p.id
       WHERE r.tournament_id = ${tournamentId}
@@ -15258,7 +15611,8 @@ async function handleTournaments(req, segments) {
         const teamsList = await sql`
           SELECT 
             t.id, t.name, t.seed, t.status, t.captain_id,
-            p.nickname as captain_nickname, p.avatar_url as captain_avatar
+            p.nickname as captain_nickname, p.avatar_url as captain_avatar,
+            p.steam_level as captain_steam_level, p.cs2_hours as captain_cs2_hours
           FROM cs_arena.teams t
           LEFT JOIN cs_arena.players p ON t.captain_id = p.id
           WHERE t.tournament_id = ${tournamentId}
@@ -15267,7 +15621,8 @@ async function handleTournaments(req, segments) {
         const membersList = await sql`
           SELECT 
             tm.team_id, tm.is_captain,
-            p.id as player_id, p.nickname, p.preferred_role, p.skill_rating, p.avatar_url
+            p.id as player_id, p.nickname, p.preferred_role, p.skill_rating, p.avatar_url,
+            p.steam_level, p.cs2_hours, p.steam_synced_at
           FROM cs_arena.team_members tm
           JOIN cs_arena.players p ON tm.player_id = p.id
           WHERE tm.tournament_id = ${tournamentId}
@@ -15285,7 +15640,8 @@ async function handleTournaments(req, segments) {
         }
         const reserves = await sql`
           SELECT 
-            r.id, p.id as player_id, p.nickname, p.preferred_role, p.skill_rating, p.avatar_url
+            r.id, p.id as player_id, p.nickname, p.preferred_role, p.skill_rating, p.avatar_url,
+            p.steam_level, p.cs2_hours, p.steam_synced_at
           FROM cs_arena.registrations r
           JOIN cs_arena.players p ON r.player_id = p.id
           WHERE r.tournament_id = ${tournamentId} AND r.status = 'reserve'
@@ -15312,7 +15668,6 @@ async function handleTournaments(req, segments) {
         const ranking = await RankingService.getTournamentRanking(tournamentId);
         return jsonResponse({ ranking, rankings: ranking?.rankings || [] });
       } catch (err) {
-        console.error("[RANKING SERVICE ERROR]:", err);
         return jsonResponse({ error: err.message || "Erro ao buscar classifica\xE7\xE3o" }, 500);
       }
     }

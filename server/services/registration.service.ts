@@ -150,7 +150,8 @@ export class RegistrationService {
     const list = await sql`
       SELECT 
         r.id as registration_id, r.status, r.registered_at,
-        p.id as player_id, p.nickname, p.steam_id, p.avatar_url, p.preferred_role, p.skill_rating
+        p.id as player_id, p.nickname, p.steam_id, p.avatar_url, p.preferred_role, p.skill_rating,
+        p.steam_level, p.cs2_hours, p.steam_synced_at
       FROM cs_arena.registrations r
       JOIN cs_arena.players p ON r.player_id = p.id
       WHERE r.tournament_id = ${tournamentId}

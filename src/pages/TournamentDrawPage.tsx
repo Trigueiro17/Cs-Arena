@@ -218,8 +218,15 @@ export function TournamentDrawPage({ params }: { params: Record<string, string> 
                     : 'bg-cs-surface border-cs-border text-slate-400 hover:text-white'
                 }`}
               >
-                <div className="font-bold text-sm text-white">Balanceado</div>
-                <div className="text-[11px] text-slate-400 mt-1">Snake draft por rating para equilibrar forças.</div>
+                <div className="flex items-center justify-between">
+                  <div className="font-bold text-sm text-white">Balanceado</div>
+                  <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-cyan-950/70 text-cyan-300 border border-cyan-500/30">
+                    Steam Elo
+                  </span>
+                </div>
+                <div className="text-[11px] text-slate-400 mt-1">
+                  Snake draft por Nível Steam e horas de CS2 para equilibrar forças perfeitamente.
+                </div>
               </button>
 
               <button

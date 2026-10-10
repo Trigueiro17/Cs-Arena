@@ -149,7 +149,8 @@ export async function handleTournaments(req: Request, segments: string[]): Promi
         const teamsList = await sql`
           SELECT 
             t.id, t.name, t.seed, t.status, t.captain_id,
-            p.nickname as captain_nickname, p.avatar_url as captain_avatar
+            p.nickname as captain_nickname, p.avatar_url as captain_avatar,
+            p.steam_level as captain_steam_level, p.cs2_hours as captain_cs2_hours
           FROM cs_arena.teams t
           LEFT JOIN cs_arena.players p ON t.captain_id = p.id
           WHERE t.tournament_id = ${tournamentId}
@@ -159,7 +160,8 @@ export async function handleTournaments(req: Request, segments: string[]): Promi
         const membersList = await sql`
           SELECT 
             tm.team_id, tm.is_captain,
-            p.id as player_id, p.nickname, p.preferred_role, p.skill_rating, p.avatar_url
+            p.id as player_id, p.nickname, p.preferred_role, p.skill_rating, p.avatar_url,
+            p.steam_level, p.cs2_hours, p.steam_synced_at
           FROM cs_arena.team_members tm
           JOIN cs_arena.players p ON tm.player_id = p.id
           WHERE tm.tournament_id = ${tournamentId}
@@ -182,7 +184,8 @@ export async function handleTournaments(req: Request, segments: string[]): Promi
         // Also get reserves
         const reserves = await sql`
           SELECT 
-            r.id, p.id as player_id, p.nickname, p.preferred_role, p.skill_rating, p.avatar_url
+            r.id, p.id as player_id, p.nickname, p.preferred_role, p.skill_rating, p.avatar_url,
+            p.steam_level, p.cs2_hours, p.steam_synced_at
           FROM cs_arena.registrations r
           JOIN cs_arena.players p ON r.player_id = p.id
           WHERE r.tournament_id = ${tournamentId} AND r.status = 'reserve'

@@ -103,9 +103,19 @@ export function TournamentTeamsPage({ params }: { params: Record<string, string>
                     <span className="w-8 h-8 rounded-lg bg-red-500/15 text-red-400 border border-red-500/30 flex items-center justify-center font-black font-display text-sm">
                       #{t.seed}
                     </span>
-                    <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold text-amber-400 bg-amber-500/10">
-                      Rating: {member.skill_rating || 1000}
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      {member.steam_level ? (
+                        <span
+                          className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-[#171a21] text-cyan-300 border border-cyan-500/30"
+                          title={`Steam Nível: ${member.steam_level} | Horas CS2: ${member.cs2_hours || 0}h`}
+                        >
+                          Steam {member.steam_level}
+                        </span>
+                      ) : null}
+                      <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold text-amber-400 bg-amber-500/10">
+                        Rating: {member.skill_rating || 1000}
+                      </span>
+                    </div>
                   </div>
 
                   <div className="flex items-center gap-3">
@@ -187,6 +197,14 @@ export function TournamentTeamsPage({ params }: { params: Record<string, string>
                         </div>
 
                         <div className="flex items-center gap-1.5 shrink-0">
+                          {m.steam_level ? (
+                            <span
+                              className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-[#171a21] text-cyan-300 border border-cyan-500/30"
+                              title={`Steam Nível: ${m.steam_level} | Horas CS2: ${m.cs2_hours || 0}h`}
+                            >
+                              Nv.{m.steam_level}
+                            </span>
+                          ) : null}
                           {m.is_captain && (
                             <span className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30">
                               <Star className="w-3 h-3 fill-current" /> Cap
