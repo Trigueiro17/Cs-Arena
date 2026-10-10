@@ -14074,10 +14074,19 @@ async function handleAuth(req) {
       });
       await logAuthAudit("STEAM_LOGIN_SUCCESS", user.id, ip, ua);
       const headers = new Headers();
-      headers.set(
-        "Location",
-        `${origin}/auth/callback?token=${accessToken}&steamId=${player.steam_id || validation.steamId64}&skillRating=${player.skill_rating}&steamLevel=${player.steam_level || 0}`
-      );
+      const redirectParams = new URLSearchParams({
+        token: accessToken,
+        steamId: player.steam_id || validation.steamId64,
+        skillRating: String(player.skill_rating || 1e3),
+        steamLevel: String(player.steam_level || 0),
+        userId: user.id,
+        userName: user.name || player.nickname,
+        userNickname: player.nickname || user.nickname || user.name,
+        userEmail: user.email,
+        userRole: user.role,
+        userAvatar: player.avatar_url || user.avatar_url || ""
+      });
+      headers.set("Location", `${origin}/auth/callback?${redirectParams.toString()}`);
       if (cookieHeader) {
         headers.set("Set-Cookie", cookieHeader);
       }

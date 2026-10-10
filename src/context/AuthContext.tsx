@@ -28,6 +28,7 @@ interface AuthContextType {
   logout: () => Promise<void>;
   logoutAll: () => Promise<void>;
   refreshSession: () => Promise<boolean>;
+  loginWithToken: (token: string, userData?: Partial<User>) => Promise<boolean>;
   fetchWithAuth: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 }
 
@@ -45,6 +46,7 @@ const AuthContext = createContext<AuthContextType>({
   logout: async () => {},
   logoutAll: async () => {},
   refreshSession: async () => false,
+  loginWithToken: async () => false,
   fetchWithAuth: async () => new Response(null, { status: 401 }),
 });
 
@@ -91,6 +93,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const res = await fetch('/api/auth/refresh', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
       });
 
       if (!res.ok) {
@@ -112,10 +115,57 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [applyAuth, clearAuth]);
 
+  // Direct login using Access Token and optional user hint (e.g. Steam Callback)
+  const loginWithToken = useCallback(
+    async (accessToken: string, userData?: Partial<User>): Promise<boolean> => {
+      setStoreAccessToken(accessToken);
+      setTokenState(accessToken);
+
+      if (userData && userData.name) {
+        applyAuth(userData as User, accessToken, 900);
+      }
+
+      try {
+        const meRes = await fetch('/api/auth/me', {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          credentials: 'include',
+        });
+        if (meRes.ok) {
+          const meData = await meRes.json();
+          if (meData.user) {
+            applyAuth(meData.user, accessToken, 900);
+            return true;
+          }
+        }
+      } catch {}
+
+      return Boolean(userData && userData.name);
+    },
+    [applyAuth]
+  );
+
   // Initial session restoration on boot
   useEffect(() => {
     async function initSession() {
       try {
+        const storedToken = getAccessToken();
+        if (storedToken) {
+          try {
+            const meRes = await fetch('/api/auth/me', {
+              headers: { Authorization: `Bearer ${storedToken}` },
+              credentials: 'include',
+            });
+            if (meRes.ok) {
+              const meData = await meRes.json();
+              if (meData.user) {
+                applyAuth(meData.user, storedToken, 900);
+                setIsLoading(false);
+                silentRefresh().catch(() => {});
+                return;
+              }
+            }
+          } catch {}
+        }
         await silentRefresh();
       } finally {
         setIsLoading(false);
@@ -128,7 +178,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         clearTimeout(refreshTimerRef.current);
       }
     };
-  }, [silentRefresh]);
+  }, [applyAuth, silentRefresh]);
 
   // Login handler
   const login = async (email: string, password: string) => {
@@ -279,6 +329,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         logout,
         logoutAll,
         refreshSession: silentRefresh,
+        loginWithToken,
         fetchWithAuth,
       }}
     >

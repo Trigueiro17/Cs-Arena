@@ -6,7 +6,7 @@ import { ShieldCheck, Flame, Trophy, AlertTriangle, ArrowRight, Sparkles } from 
 
 export function SteamCallbackPage() {
   const { navigate } = useRouter();
-  const { refreshSession } = useAuth();
+  const { loginWithToken } = useAuth();
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [steamDetails, setSteamDetails] = useState<{
@@ -35,29 +35,43 @@ export function SteamCallbackPage() {
       return;
     }
 
-    // Save token and sync session
-    setAccessToken(token);
+    const userRole = (params.get('userRole') || 'PLAYER') as any;
+    const userName = params.get('userName') || 'Jogador';
+    const userNickname = params.get('userNickname') || userName;
+    const userEmail = params.get('userEmail') || `${steamId}@steam.csarena.internal`;
+    const userAvatar = params.get('userAvatar');
+    const userId = params.get('userId') || '';
+
+    const userData = {
+      id: userId,
+      name: userName,
+      nickname: userNickname,
+      email: userEmail,
+      role: userRole,
+      status: 'ACTIVE' as const,
+      avatarUrl: userAvatar,
+    };
+
     setSteamDetails({
       steamId: steamId || '',
       skillRating,
       steamLevel,
     });
 
-    refreshSession()
+    loginWithToken(token, userData)
       .then(() => {
         setStatus('success');
         setTimeout(() => {
           navigate('/');
-        }, 2200);
+        }, 1800);
       })
       .catch(() => {
-        // Even if refreshSession takes a moment, success is granted with token
         setStatus('success');
         setTimeout(() => {
           navigate('/');
-        }, 2500);
+        }, 2000);
       });
-  }, [navigate, refreshSession]);
+  }, [navigate, loginWithToken]);
 
   return (
     <div className="max-w-md mx-auto py-16 px-4">
