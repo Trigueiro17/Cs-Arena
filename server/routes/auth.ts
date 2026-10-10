@@ -442,7 +442,11 @@ export async function handleAuth(req: Request): Promise<Response> {
 
   // 10. GET /api/auth/steam — Redireciona para login OpenID da Steam
   if (method === 'GET' && path === 'steam') {
-    const origin = url.origin || process.env.APP_URL || 'http://localhost:5173';
+    const forwardedHost = req.headers.get('x-forwarded-host');
+    const forwardedProto = req.headers.get('x-forwarded-proto') || 'https';
+    const origin = forwardedHost
+      ? `${forwardedProto}://${forwardedHost}`
+      : (process.env.APP_URL || url.origin || 'http://localhost:5173');
     const redirectUrl = SteamService.buildLoginUrl(origin, '/api/auth/steam/return');
 
     if (url.searchParams.get('format') === 'json' || req.headers.get('accept')?.includes('application/json')) {
@@ -459,7 +463,11 @@ export async function handleAuth(req: Request): Promise<Response> {
 
   // 11. GET /api/auth/steam/return — Callback OpenID da Steam
   if (method === 'GET' && path === 'steam/return') {
-    const origin = url.origin || process.env.APP_URL || 'http://localhost:5173';
+    const forwardedHost = req.headers.get('x-forwarded-host');
+    const forwardedProto = req.headers.get('x-forwarded-proto') || 'https';
+    const origin = forwardedHost
+      ? `${forwardedProto}://${forwardedHost}`
+      : (process.env.APP_URL || url.origin || 'http://localhost:5173');
     const validation = await SteamService.validateOpenIdResponse(url.searchParams);
 
     if (!validation.valid || !validation.steamId64) {

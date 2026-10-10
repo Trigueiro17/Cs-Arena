@@ -13407,7 +13407,7 @@ var SteamService = class _SteamService {
   static buildLoginUrl(baseUrl, returnPath = "/api/auth/steam/return") {
     const cleanBase = baseUrl.replace(/\/+$/, "");
     const returnUrl = `${cleanBase}${returnPath.startsWith("/") ? returnPath : `/${returnPath}`}`;
-    const realm = cleanBase;
+    const realm = `${cleanBase}/`;
     const steamUrl = new URL("https://steamcommunity.com/openid/login");
     steamUrl.searchParams.set("openid.ns", "http://specs.openid.net/auth/2.0");
     steamUrl.searchParams.set("openid.mode", "checkid_setup");
@@ -14008,7 +14008,9 @@ async function handleAuth(req) {
     }
   }
   if (method === "GET" && path === "steam") {
-    const origin = url.origin || process.env.APP_URL || "http://localhost:5173";
+    const forwardedHost = req.headers.get("x-forwarded-host");
+    const forwardedProto = req.headers.get("x-forwarded-proto") || "https";
+    const origin = forwardedHost ? `${forwardedProto}://${forwardedHost}` : process.env.APP_URL || url.origin || "http://localhost:5173";
     const redirectUrl = SteamService.buildLoginUrl(origin, "/api/auth/steam/return");
     if (url.searchParams.get("format") === "json" || req.headers.get("accept")?.includes("application/json")) {
       return jsonResponse({ url: redirectUrl });
@@ -14021,7 +14023,9 @@ async function handleAuth(req) {
     });
   }
   if (method === "GET" && path === "steam/return") {
-    const origin = url.origin || process.env.APP_URL || "http://localhost:5173";
+    const forwardedHost = req.headers.get("x-forwarded-host");
+    const forwardedProto = req.headers.get("x-forwarded-proto") || "https";
+    const origin = forwardedHost ? `${forwardedProto}://${forwardedHost}` : process.env.APP_URL || url.origin || "http://localhost:5173";
     const validation = await SteamService.validateOpenIdResponse(url.searchParams);
     if (!validation.valid || !validation.steamId64) {
       const errorMsg = encodeURIComponent(validation.error || "Falha na autentica\xE7\xE3o com a Steam.");
@@ -15862,10 +15866,30 @@ async function handler(req, res) {
   if (res && (typeof res.setHeader === "function" || typeof res.writeHead === "function")) {
     try {
       let rawPath = req.headers && (req.headers["x-forwarded-uri"] || req.headers["x-matched-path"]) || req.url || "/api";
+      const queryIdx = req.url ? req.url.indexOf("?") : -1;
+      const rawQueryString = queryIdx !== -1 ? req.url.slice(queryIdx) : "";
       const qPath = req.query?.path || req.query?.all || req.query?.slug;
       if (qPath) {
         const joined = Array.isArray(qPath) ? qPath.join("/") : qPath;
         rawPath = `/api/${joined}`;
+      }
+      if (rawQueryString && !rawPath.includes("?")) {
+        rawPath = `${rawPath}${rawQueryString}`;
+      } else if (!rawPath.includes("?") && req.query && typeof req.query === "object") {
+        const qp = new URLSearchParams();
+        for (const [k, v2] of Object.entries(req.query)) {
+          if (k !== "path" && k !== "all" && k !== "slug" && v2 !== void 0 && v2 !== null) {
+            if (Array.isArray(v2)) {
+              for (const item of v2)
+                qp.append(k, item);
+            } else {
+              qp.set(k, String(v2));
+            }
+          }
+        }
+        const qs2 = qp.toString();
+        if (qs2)
+          rawPath = `${rawPath}?${qs2}`;
       }
       const host = req.headers["x-forwarded-host"] || req.headers.host || "localhost";
       const proto = req.headers["x-forwarded-proto"] || "https";

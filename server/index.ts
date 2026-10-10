@@ -107,11 +107,33 @@ export default async function handler(req: any, res?: any) {
         req.url ||
         '/api';
 
+      // Preserve query string from req.url
+      const queryIdx = req.url ? req.url.indexOf('?') : -1;
+      const rawQueryString = queryIdx !== -1 ? req.url.slice(queryIdx) : '';
+
       // If query path is provided by Vercel rewrite or catch-all, resolve cleanly
       const qPath = req.query?.path || req.query?.all || req.query?.slug;
       if (qPath) {
         const joined = Array.isArray(qPath) ? qPath.join('/') : qPath;
         rawPath = `/api/${joined}`;
+      }
+
+      // Re-attach query parameters if present so OpenID return params are never lost
+      if (rawQueryString && !rawPath.includes('?')) {
+        rawPath = `${rawPath}${rawQueryString}`;
+      } else if (!rawPath.includes('?') && req.query && typeof req.query === 'object') {
+        const qp = new URLSearchParams();
+        for (const [k, v] of Object.entries(req.query)) {
+          if (k !== 'path' && k !== 'all' && k !== 'slug' && v !== undefined && v !== null) {
+            if (Array.isArray(v)) {
+              for (const item of v) qp.append(k, item);
+            } else {
+              qp.set(k, String(v));
+            }
+          }
+        }
+        const qs = qp.toString();
+        if (qs) rawPath = `${rawPath}?${qs}`;
       }
 
       const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost';

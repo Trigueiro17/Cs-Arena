@@ -18,7 +18,7 @@ describe('Steam OpenID 2.0 & Skill Balancing Integration', () => {
       expect(url.searchParams.get('openid.ns')).toBe('http://specs.openid.net/auth/2.0');
       expect(url.searchParams.get('openid.mode')).toBe('checkid_setup');
       expect(url.searchParams.get('openid.return_to')).toBe('https://cs-arena.vercel.app/api/auth/steam/return');
-      expect(url.searchParams.get('openid.realm')).toBe('https://cs-arena.vercel.app');
+      expect(url.searchParams.get('openid.realm')).toBe('https://cs-arena.vercel.app/');
       expect(url.searchParams.get('openid.identity')).toBe('http://specs.openid.net/auth/2.0/identifier_select');
       expect(url.searchParams.get('openid.claimed_id')).toBe('http://specs.openid.net/auth/2.0/identifier_select');
     });

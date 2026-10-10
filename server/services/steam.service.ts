@@ -20,7 +20,7 @@ export class SteamService {
   static buildLoginUrl(baseUrl: string, returnPath: string = '/api/auth/steam/return'): string {
     const cleanBase = baseUrl.replace(/\/+$/, '');
     const returnUrl = `${cleanBase}${returnPath.startsWith('/') ? returnPath : `/${returnPath}`}`;
-    const realm = cleanBase;
+    const realm = `${cleanBase}/`;
 
     const steamUrl = new URL('https://steamcommunity.com/openid/login');
     steamUrl.searchParams.set('openid.ns', 'http://specs.openid.net/auth/2.0');
