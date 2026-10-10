@@ -3,7 +3,13 @@ import { comparePassword, createSessionToken, hashPassword, verifySessionToken }
 
 export async function handleAuth(req: Request): Promise<Response> {
   const url = new URL(req.url);
-  const path = url.pathname.replace(/^\/api\/auth\/?/, '');
+  let path = url.pathname.replace(/^\/api\/auth\/?/, '').replace(/\/+$/, '').split('?')[0];
+  if (path.includes('[...')) {
+    const pathParam = url.searchParams.getAll('path');
+    if (pathParam.length > 0) {
+      path = pathParam[pathParam.length - 1];
+    }
+  }
 
   if (req.method === 'POST' && path === 'register') {
     try {
@@ -85,7 +91,7 @@ export async function handleAuth(req: Request): Promise<Response> {
       const users = await sql`
         SELECT id, email, password_hash, name, role
         FROM cs_arena.users
-        WHERE email = ${email}
+        WHERE LOWER(email) = LOWER(${email.trim()})
         LIMIT 1;
       `;
 

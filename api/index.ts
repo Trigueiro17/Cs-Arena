@@ -3,10 +3,25 @@ import { handleTournaments } from './routes/tournaments';
 import { handleDraws } from './routes/draws';
 import { handleMatches } from './routes/matches';
 import { jsonResponse } from './utils';
+import { neon } from '@neondatabase/serverless';
 
 export async function router(req: Request): Promise<Response> {
   const url = new URL(req.url);
-  const pathname = url.pathname.replace(/^\/api\/?/, '');
+  let pathname = url.pathname.replace(/^\/api\/?/, '');
+
+  // Handle case where Vercel catch-all passes path query parameter
+  if (pathname.includes('[...')) {
+    const params = url.searchParams.getAll('path');
+    if (params.length > 0) {
+      pathname = params.join('/');
+    } else {
+      const single = url.searchParams.get('path') || url.searchParams.get('all') || url.searchParams.get('slug');
+      if (single) pathname = single;
+    }
+  }
+
+  // Normalize path
+  pathname = pathname.replace(/\/+$/, '').split('?')[0];
   const segments = pathname.split('/').filter(Boolean);
 
   // CORS Preflight
@@ -22,6 +37,32 @@ export async function router(req: Request): Promise<Response> {
   }
 
   const primary = segments[0];
+
+  // 1. Health & Database Diagnostic endpoint
+  if (primary === 'health') {
+    let dbStatus = 'ok';
+    let dbError: string | null = null;
+    try {
+      const connString = process.env.DATABASE_URL;
+      if (!connString) {
+        throw new Error('DATABASE_URL is not set in environment.');
+      }
+      const testSql = neon(connString);
+      await testSql`SELECT 1;`;
+    } catch (e: any) {
+      dbStatus = 'error';
+      dbError = e.message || 'Database connection error';
+    }
+    return jsonResponse(
+      {
+        status: dbStatus === 'ok' ? 'healthy' : 'degraded',
+        database: dbStatus,
+        dbError,
+        timestamp: new Date().toISOString(),
+      },
+      dbStatus === 'ok' ? 200 : 500
+    );
+  }
 
   if (primary === 'auth') {
     return handleAuth(req);
@@ -48,7 +89,23 @@ export default async function handler(req: any, res?: any) {
   // If running in Node.js serverless environment (Vercel standard Node runtime)
   if (res && (typeof res.setHeader === 'function' || typeof res.writeHead === 'function')) {
     try {
-      const url = `http://${req.headers.host || 'localhost'}${req.url}`;
+      let rawPath =
+        (req.headers && (req.headers['x-forwarded-uri'] || req.headers['x-matched-path'])) ||
+        req.url ||
+        '/api';
+
+      // If rawPath has catch-all token, resolve using query
+      if (rawPath.includes('[...')) {
+        const qPath = req.query?.path || req.query?.all || req.query?.slug;
+        if (qPath) {
+          const joined = Array.isArray(qPath) ? qPath.join('/') : qPath;
+          rawPath = `/api/${joined}`;
+        }
+      }
+
+      const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost';
+      const proto = req.headers['x-forwarded-proto'] || 'https';
+      const fullUrl = `${proto}://${host}${rawPath}`;
 
       const headers = new Headers();
       for (const [key, value] of Object.entries(req.headers)) {
@@ -59,6 +116,8 @@ export default async function handler(req: any, res?: any) {
       if (req.method !== 'GET' && req.method !== 'HEAD') {
         if (typeof req.body === 'string') {
           body = req.body;
+        } else if (req.body && typeof req.body === 'object' && Buffer.isBuffer(req.body)) {
+          body = req.body.toString('utf-8');
         } else if (req.body && typeof req.body === 'object') {
           body = JSON.stringify(req.body);
         } else {
@@ -73,7 +132,7 @@ export default async function handler(req: any, res?: any) {
         }
       }
 
-      const request = new Request(url, {
+      const request = new Request(fullUrl, {
         method: req.method,
         headers,
         body,
@@ -99,3 +158,4 @@ export default async function handler(req: any, res?: any) {
   // If called directly with Web Request
   return router(req);
 }
+

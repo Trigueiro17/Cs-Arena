@@ -71,7 +71,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email: email.trim(), password }),
       });
 
       const text = await res.text();
@@ -79,7 +79,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         data = JSON.parse(text);
       } catch (e) {
-        return { success: false, error: 'Erro de comunicação com o servidor.' };
+        console.error('API /api/auth/login returned non-JSON:', res.status, text.slice(0, 200));
+        return {
+          success: false,
+          error:
+            res.status === 404
+              ? 'Rota de autenticação não encontrada (404). Verifique as funções da Vercel.'
+              : res.status >= 500
+              ? `Erro no servidor (${res.status}). Verifique a variável DATABASE_URL na Vercel.`
+              : `Resposta inválida do servidor (${res.status}).`,
+        };
       }
 
       if (!res.ok) {
@@ -100,7 +109,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, email, password }),
+        body: JSON.stringify({ name: name.trim(), email: email.trim(), password }),
       });
 
       const text = await res.text();
@@ -108,7 +117,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         data = JSON.parse(text);
       } catch (e) {
-        return { success: false, error: 'Erro de comunicação com o servidor.' };
+        console.error('API /api/auth/register returned non-JSON:', res.status, text.slice(0, 200));
+        return {
+          success: false,
+          error:
+            res.status === 404
+              ? 'Rota de registro não encontrada (404). Verifique as funções da Vercel.'
+              : res.status >= 500
+              ? `Erro no servidor (${res.status}). Verifique a variável DATABASE_URL na Vercel.`
+              : `Resposta inválida do servidor (${res.status}).`,
+        };
       }
 
       if (!res.ok) {
