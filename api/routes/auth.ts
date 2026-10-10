@@ -1,7 +1,5 @@
-import { neon } from '@neondatabase/serverless';
+import { sql } from '../db';
 import { comparePassword, createSessionToken, hashPassword, verifySessionToken } from '../../src/lib/auth';
-
-const sql = neon(process.env.DATABASE_URL || '');
 
 export async function handleAuth(req: Request): Promise<Response> {
   const url = new URL(req.url);

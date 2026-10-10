@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { router } from '../api/index';
 
-describe('CS Arena — Acceptance Criteria Demo Real (43 Jogadores)', () => {
+const hasDatabaseUrl = Boolean(process.env.DATABASE_URL);
+
+describe.skipIf(!hasDatabaseUrl)('CS Arena — Acceptance Criteria Demo Real (43 Jogadores)', () => {
   let adminToken: string;
   let playerToken: string;
   let tournamentId: string;

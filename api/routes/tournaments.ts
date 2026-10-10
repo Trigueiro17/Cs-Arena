@@ -1,7 +1,5 @@
-import { neon } from '@neondatabase/serverless';
+import { sql } from '../db';
 import { jsonResponse, requireAdmin, getAuthUser } from '../utils';
-
-const sql = neon(process.env.DATABASE_URL || '');
 
 export async function handleTournaments(req: Request, segments: string[]): Promise<Response> {
   const method = req.method;
