@@ -12,6 +12,7 @@ interface AuthContextType {
   isAdmin: boolean;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  registerUser: (name: string, email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
   token: string | null;
 }
@@ -21,6 +22,7 @@ const AuthContext = createContext<AuthContextType>({
   isAdmin: false,
   isLoading: true,
   login: async () => ({ success: false }),
+  registerUser: async () => ({ success: false }),
   logout: async () => {},
   token: null,
 });
@@ -86,6 +88,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const registerUser = async (name: string, email: string, password: string) => {
+    try {
+      const res = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, email, password }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        return { success: false, error: data.error || 'Falha ao cadastrar usuário.' };
+      }
+
+      setToken(data.token);
+      localStorage.setItem('cs_token', data.token);
+      setUser(data.user);
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Falha na conexão com o servidor.' };
+    }
+  };
+
   const logout = async () => {
     try {
       await fetch('/api/auth/logout', { method: 'POST' });
@@ -102,6 +126,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isAdmin: user?.role === 'admin',
         isLoading,
         login,
+        registerUser,
         logout,
         token,
       }}

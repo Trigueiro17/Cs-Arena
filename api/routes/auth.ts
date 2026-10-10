@@ -5,6 +5,71 @@ export async function handleAuth(req: Request): Promise<Response> {
   const url = new URL(req.url);
   const path = url.pathname.replace(/^\/api\/auth\/?/, '');
 
+  if (req.method === 'POST' && path === 'register') {
+    try {
+      const body = await req.json();
+      const { name, email, password } = body;
+
+      if (!name || !email || !password) {
+        return new Response(JSON.stringify({ error: 'Nome, e-mail e senha são obrigatórios.' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      if (password.length < 6) {
+        return new Response(JSON.stringify({ error: 'A senha deve conter no mínimo 6 caracteres.' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      const existing = await sql`
+        SELECT id FROM cs_arena.users WHERE LOWER(email) = LOWER(${email.trim()}) LIMIT 1;
+      `;
+      if (existing.length > 0) {
+        return new Response(JSON.stringify({ error: 'Este e-mail já está cadastrado.' }), {
+          status: 409,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      const passwordHash = await hashPassword(password);
+      const [newUser] = await sql`
+        INSERT INTO cs_arena.users (name, email, password_hash, role)
+        VALUES (${name.trim()}, ${email.trim().toLowerCase()}, ${passwordHash}, 'user')
+        RETURNING id, name, email, role;
+      `;
+
+      const token = await createSessionToken({
+        userId: newUser.id,
+        email: newUser.email,
+        name: newUser.name,
+        role: newUser.role as 'admin' | 'user',
+      });
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          token,
+          user: newUser,
+        }),
+        {
+          status: 201,
+          headers: {
+            'Content-Type': 'application/json',
+            'Set-Cookie': `cs_token=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800`,
+          },
+        }
+      );
+    } catch (err: any) {
+      return new Response(JSON.stringify({ error: err.message || 'Erro ao criar conta' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+  }
+
   if (req.method === 'POST' && path === 'login') {
     try {
       const body = await req.json();
