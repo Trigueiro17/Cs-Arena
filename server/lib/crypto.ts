@@ -1,17 +1,30 @@
 import crypto from 'crypto';
-import * as argon2 from '@node-rs/argon2';
 import bcrypt from 'bcryptjs';
 
+let argon2: any = null;
+try {
+  argon2 = await import('@node-rs/argon2');
+} catch {
+  argon2 = null;
+}
+
 /**
- * Hash password using Argon2id with recommended parameters
+ * Hash password using Argon2id with recommended parameters (fallback to bcrypt if native addon fails)
  */
 export async function hashPassword(password: string): Promise<string> {
-  return argon2.hash(password, {
-    algorithm: 2, // 2 = Argon2id
-    memoryCost: 19456, // 19 MiB
-    timeCost: 2,
-    parallelism: 1,
-  });
+  if (argon2 && typeof argon2.hash === 'function') {
+    try {
+      return await argon2.hash(password, {
+        algorithm: 2, // 2 = Argon2id
+        memoryCost: 19456, // 19 MiB
+        timeCost: 2,
+        parallelism: 1,
+      });
+    } catch {
+      // Fall through to bcrypt
+    }
+  }
+  return bcrypt.hash(password, 10);
 }
 
 /**
@@ -22,19 +35,22 @@ export async function verifyPassword(password: string, hash: string): Promise<{ 
 
   // Check if hash is Argon2id
   if (hash.startsWith('$argon2id$') || hash.startsWith('$argon2i$') || hash.startsWith('$argon2d$')) {
-    try {
-      const valid = await argon2.verify(hash, password);
-      return { valid, needsRehash: false };
-    } catch {
-      return { valid: false, needsRehash: false };
+    if (argon2 && typeof argon2.verify === 'function') {
+      try {
+        const valid = await argon2.verify(hash, password);
+        return { valid, needsRehash: false };
+      } catch {
+        return { valid: false, needsRehash: false };
+      }
     }
+    return { valid: false, needsRehash: false };
   }
 
   // Fallback for existing legacy bcrypt hashes ($2a$, $2b$, $2y$)
   if (hash.startsWith('$2')) {
     try {
       const valid = await bcrypt.compare(password, hash);
-      return { valid, needsRehash: valid }; // If valid, mark for auto-upgrade to Argon2id
+      return { valid, needsRehash: argon2 !== null }; // If argon2 is available, mark for upgrade
     } catch {
       return { valid: false, needsRehash: false };
     }

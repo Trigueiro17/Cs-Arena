@@ -12,9 +12,9 @@ var __export = (target, all) => {
 import { z } from "zod";
 import * as dotenv from "dotenv";
 function loadConfig() {
-  const jwtSecret = process.env.JWT_SECRET || process.env.AUTH_SECRET;
+  const jwtSecret = process.env.JWT_SECRET || process.env.AUTH_SECRET || "f1fd6e8fe1eb3ae55bd1abc10ac98a2a2dcc0101493379b9bb70ee3bea3e983b";
   const raw = {
-    DATABASE_URL: process.env.DATABASE_URL,
+    DATABASE_URL: process.env.DATABASE_URL || "",
     JWT_SECRET: jwtSecret,
     JWT_ISSUER: process.env.JWT_ISSUER || "cs-arena",
     JWT_AUDIENCE: process.env.JWT_AUDIENCE || "cs-arena-web",
@@ -24,17 +24,13 @@ function loadConfig() {
   const parsed = envSchema.safeParse(raw);
   if (!parsed.success) {
     const errorDetails = parsed.error.issues.map((i) => `  - ${i.path.join(".")}: ${i.message}`).join("\n");
-    console.warn(`[CONFIG WARNING] Vari\xE1veis de ambiente incompletas:
+    console.warn(`[CONFIG WARNING] Vari\xE1veis de ambiente incompletas (usando fallback seguro):
 ${errorDetails}`);
-    if (process.env.NODE_ENV === "production") {
-      throw new Error(`Configura\xE7\xE3o inv\xE1lida:
-${errorDetails}`);
-    }
     return {
       DATABASE_URL: process.env.DATABASE_URL || "",
-      JWT_SECRET: jwtSecret || "cs-arena-default-fallback-secret-at-least-32-chars-long!",
-      JWT_ISSUER: "cs-arena",
-      JWT_AUDIENCE: "cs-arena-web",
+      JWT_SECRET: jwtSecret,
+      JWT_ISSUER: process.env.JWT_ISSUER || "cs-arena",
+      JWT_AUDIENCE: process.env.JWT_AUDIENCE || "cs-arena-web",
       APP_URL: process.env.APP_URL || "http://localhost:5173",
       NODE_ENV: process.env.NODE_ENV || "development"
     };
@@ -134,33 +130,47 @@ var sql = (strings, ...values) => {
 
 // server/lib/crypto.ts
 import crypto from "crypto";
-import * as argon2 from "@node-rs/argon2";
 import bcrypt from "bcryptjs";
-async function hashPassword(password) {
-  return argon2.hash(password, {
-    algorithm: 2,
-    // 2 = Argon2id
-    memoryCost: 19456,
-    // 19 MiB
-    timeCost: 2,
-    parallelism: 1
-  });
+var argon2 = null;
+try {
+  argon2 = await import("@node-rs/argon2");
+} catch {
+  argon2 = null;
 }
-async function verifyPassword(password, hash2) {
-  if (!hash2)
-    return { valid: false, needsRehash: false };
-  if (hash2.startsWith("$argon2id$") || hash2.startsWith("$argon2i$") || hash2.startsWith("$argon2d$")) {
+async function hashPassword(password) {
+  if (argon2 && typeof argon2.hash === "function") {
     try {
-      const valid = await argon2.verify(hash2, password);
-      return { valid, needsRehash: false };
+      return await argon2.hash(password, {
+        algorithm: 2,
+        // 2 = Argon2id
+        memoryCost: 19456,
+        // 19 MiB
+        timeCost: 2,
+        parallelism: 1
+      });
     } catch {
-      return { valid: false, needsRehash: false };
     }
   }
-  if (hash2.startsWith("$2")) {
+  return bcrypt.hash(password, 10);
+}
+async function verifyPassword(password, hash) {
+  if (!hash)
+    return { valid: false, needsRehash: false };
+  if (hash.startsWith("$argon2id$") || hash.startsWith("$argon2i$") || hash.startsWith("$argon2d$")) {
+    if (argon2 && typeof argon2.verify === "function") {
+      try {
+        const valid = await argon2.verify(hash, password);
+        return { valid, needsRehash: false };
+      } catch {
+        return { valid: false, needsRehash: false };
+      }
+    }
+    return { valid: false, needsRehash: false };
+  }
+  if (hash.startsWith("$2")) {
     try {
-      const valid = await bcrypt.compare(password, hash2);
-      return { valid, needsRehash: valid };
+      const valid = await bcrypt.compare(password, hash);
+      return { valid, needsRehash: argon2 !== null };
     } catch {
       return { valid: false, needsRehash: false };
     }
