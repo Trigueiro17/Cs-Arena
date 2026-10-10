@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import confetti from 'canvas-confetti';
 import { sounds } from '../lib/audio';
-import { Volume2, VolumeX, Maximize2, Minimize2, Play, FastForward, CheckCircle2, Trophy, User } from 'lucide-react';
+import { Volume2, VolumeX, Maximize2, Minimize2, Play, FastForward, CheckCircle2, Trophy, User, Shield, Sparkles } from 'lucide-react';
 
 export interface DrawStep {
   order: number;
@@ -31,17 +31,14 @@ export function RouletteWheel({ candidates, steps, onComplete, isLiveMode = fals
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isMuted, setIsMuted] = useState(sounds.getMuted());
 
-  // Current rotation angle in radians
   const angleRef = useRef(0);
   const animFrameRef = useRef<number | null>(null);
 
-  // Group steps by team for live presentation board
   const totalSteps = steps.length;
   const currentStep = steps[currentStepIndex] || null;
 
-  // Active pool of players displayed on the wheel
   const activePool = candidates.length > 0
-    ? candidates.slice(0, 16) // Top 16 visible slots for high readability
+    ? candidates.slice(0, 16)
     : [{ id: '1', nickname: 'Aguardando' }];
 
   const sliceAngle = (2 * Math.PI) / activePool.length;
@@ -63,7 +60,7 @@ export function RouletteWheel({ candidates, steps, onComplete, isLiveMode = fals
     setIsMuted(next);
   };
 
-  // Draw the wheel on canvas
+  // Draw the high-end esports wheel on canvas
   const drawWheel = (rotation: number) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -74,7 +71,7 @@ export function RouletteWheel({ candidates, steps, onComplete, isLiveMode = fals
     const height = canvas.height;
     const cx = width / 2;
     const cy = height / 2;
-    const radius = Math.min(cx, cy) - 20;
+    const radius = Math.min(cx, cy) - 26;
 
     ctx.clearRect(0, 0, width, height);
 
@@ -83,9 +80,8 @@ export function RouletteWheel({ candidates, steps, onComplete, isLiveMode = fals
     ctx.translate(cx, cy);
     ctx.rotate(rotation);
 
-    // Draw Slices
-    const colors = ['#1e293b', '#0f172a', '#1e293b', '#182030'];
-    const accentColors = ['#f97316', '#38bdf8', '#fbbf24', '#0284c7'];
+    // Slices
+    const colors = ['#151c28', '#0c1018', '#1a2232', '#0f141f'];
 
     for (let i = 0; i < activePool.length; i++) {
       const start = i * sliceAngle;
@@ -98,7 +94,7 @@ export function RouletteWheel({ candidates, steps, onComplete, isLiveMode = fals
       ctx.fill();
 
       // Outer rim accent
-      ctx.lineWidth = 4;
+      ctx.lineWidth = 3;
       ctx.strokeStyle = '#232f46';
       ctx.stroke();
 
@@ -106,51 +102,75 @@ export function RouletteWheel({ candidates, steps, onComplete, isLiveMode = fals
       ctx.beginPath();
       ctx.moveTo(0, 0);
       ctx.lineTo(Math.cos(start) * radius, Math.sin(start) * radius);
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
-      ctx.lineWidth = 2;
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.09)';
+      ctx.lineWidth = 1.5;
       ctx.stroke();
 
       // Slice Text (Nickname)
       ctx.save();
       ctx.rotate(start + sliceAngle / 2);
       ctx.textAlign = 'right';
-      ctx.fillStyle = i % 2 === 0 ? '#f97316' : '#f1f5f9';
+      ctx.fillStyle = i % 2 === 0 ? '#ff8a3d' : '#f8fafc';
       ctx.font = 'bold 15px Rajdhani, sans-serif';
-      ctx.fillText(activePool[i].nickname.slice(0, 14), radius - 30, 5);
+      ctx.fillText(activePool[i].nickname.slice(0, 13), radius - 32, 5);
       ctx.restore();
     }
 
-    // Outer glow ring
+    // Outer Neon Ring with Golden Border
     ctx.beginPath();
     ctx.arc(0, 0, radius, 0, 2 * Math.PI);
     ctx.lineWidth = 6;
     ctx.strokeStyle = '#f97316';
     ctx.stroke();
 
-    // Center Hub
+    // Outer decorative LED pegs
+    for (let i = 0; i < activePool.length * 2; i++) {
+      const pegAngle = (i * Math.PI) / activePool.length;
+      const px = Math.cos(pegAngle) * (radius + 10);
+      const py = Math.sin(pegAngle) * (radius + 10);
+
+      ctx.beginPath();
+      ctx.arc(px, py, 3.5, 0, 2 * Math.PI);
+      ctx.fillStyle = i % 2 === 0 ? '#fbbf24' : '#38bdf8';
+      ctx.fill();
+    }
+
+    // Center Metallic Hub
     ctx.beginPath();
-    ctx.arc(0, 0, 36, 0, 2 * Math.PI);
-    ctx.fillStyle = '#0b0e14';
+    ctx.arc(0, 0, 42, 0, 2 * Math.PI);
+    ctx.fillStyle = '#07090e';
     ctx.fill();
     ctx.lineWidth = 4;
     ctx.strokeStyle = '#fbbf24';
     ctx.stroke();
 
+    // Inner CS Gold Medallion Ring
+    ctx.beginPath();
+    ctx.arc(0, 0, 28, 0, 2 * Math.PI);
+    ctx.fillStyle = '#1c1917';
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#f97316';
+    ctx.stroke();
+
     ctx.restore();
 
-    // Draw Static Top Pointer / Ticker
+    // Top Pointer / Ticker with Spotlight Beam Effect
     ctx.save();
-    ctx.translate(cx, cy - radius + 5);
+    ctx.translate(cx, cy - radius + 6);
+
+    // Glowing pointer
     ctx.beginPath();
-    ctx.moveTo(-16, -18);
-    ctx.lineTo(16, -18);
-    ctx.lineTo(0, 12);
+    ctx.moveTo(-18, -22);
+    ctx.lineTo(18, -22);
+    ctx.lineTo(0, 14);
     ctx.closePath();
     ctx.fillStyle = '#f97316';
     ctx.fill();
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 2.5;
     ctx.strokeStyle = '#ffffff';
     ctx.stroke();
+
     ctx.restore();
   };
 
@@ -167,20 +187,17 @@ export function RouletteWheel({ candidates, steps, onComplete, isLiveMode = fals
 
     const targetStep = steps[currentStepIndex];
 
-    // Find target in active pool or temporary slot
     let targetIndex = activePool.findIndex(p => p.id === targetStep.playerId);
     if (targetIndex === -1) targetIndex = currentStepIndex % activePool.length;
 
-    // Pointer is at -90 degrees (-Math.PI/2) at top center
     const targetSliceCenter = targetIndex * sliceAngle + sliceAngle / 2;
     const stopAngle = (3 * Math.PI / 2) - targetSliceCenter;
 
-    // Minimum full rotations for exciting tension
     const fullRotations = (4 + Math.floor(Math.random() * 2)) * 2 * Math.PI;
     const finalAngle = angleRef.current + fullRotations + ((stopAngle - (angleRef.current % (2 * Math.PI)) + 4 * Math.PI) % (2 * Math.PI));
 
     const startTime = performance.now();
-    const duration = 3800; // 3.8 seconds smooth deceleration
+    const duration = 3800; // 3.8s smooth cubic deceleration
     const startAngle = angleRef.current;
     let lastTickAngle = startAngle;
 
@@ -188,14 +205,12 @@ export function RouletteWheel({ candidates, steps, onComplete, isLiveMode = fals
       const elapsed = now - startTime;
       const progress = Math.min(elapsed / duration, 1);
 
-      // Smooth ease-out cubic deceleration
       const easeOut = 1 - Math.pow(1 - progress, 3);
       const current = startAngle + (finalAngle - startAngle) * easeOut;
       angleRef.current = current;
 
       drawWheel(current);
 
-      // Tick sound every slice crossed
       if (Math.abs(current - lastTickAngle) >= sliceAngle) {
         sounds.playTick();
         lastTickAngle = current;
@@ -204,20 +219,17 @@ export function RouletteWheel({ candidates, steps, onComplete, isLiveMode = fals
       if (progress < 1) {
         animFrameRef.current = requestAnimationFrame(animate);
       } else {
-        // Spin finished!
         setIsSpinning(false);
         setSelectedWinner(targetStep);
         sounds.playWinnerChime();
 
-        // Confetti celebration
         confetti({
-          particleCount: 60,
-          spread: 70,
+          particleCount: 80,
+          spread: 80,
           origin: { y: 0.6 },
           colors: ['#f97316', '#38bdf8', '#fbbf24', '#22c55e'],
         });
 
-        // Add to assigned teams
         setAssignedTeams(prev => {
           const updated = { ...prev };
           if (!updated[targetStep.teamName]) {
@@ -227,7 +239,6 @@ export function RouletteWheel({ candidates, steps, onComplete, isLiveMode = fals
           return updated;
         });
 
-        // Move to next step index
         setCurrentStepIndex(prev => {
           const next = prev + 1;
           if (next >= totalSteps && onComplete) {
@@ -241,7 +252,6 @@ export function RouletteWheel({ candidates, steps, onComplete, isLiveMode = fals
     animFrameRef.current = requestAnimationFrame(animate);
   };
 
-  // Fast forward all remaining steps instantly
   const finishAllInstantly = () => {
     if (isSpinning) return;
 
@@ -261,7 +271,7 @@ export function RouletteWheel({ candidates, steps, onComplete, isLiveMode = fals
       setSelectedWinner(steps[steps.length - 1]);
     }
     sounds.playWinnerChime();
-    confetti({ particleCount: 120, spread: 100 });
+    confetti({ particleCount: 140, spread: 120 });
 
     if (onComplete) {
       setTimeout(onComplete, 600);
@@ -271,61 +281,69 @@ export function RouletteWheel({ candidates, steps, onComplete, isLiveMode = fals
   return (
     <div
       ref={containerRef}
-      className={`glass-panel rounded-2xl p-6 relative transition-all ${
-        isFullscreen ? 'fixed inset-0 z-50 bg-cs-dark p-10 overflow-y-auto' : ''
+      className={`glass-panel rounded-3xl p-6 sm:p-8 relative border border-white/10 shadow-2xl transition-all ${
+        isFullscreen ? 'fixed inset-0 z-50 bg-[#07090e] p-10 overflow-y-auto' : ''
       }`}
     >
       {/* Header bar */}
-      <div className="flex items-center justify-between border-b border-cs-border pb-4 mb-6">
+      <div className="flex items-center justify-between border-b border-white/10 pb-5 mb-8">
         <div>
-          <h2 className="text-2xl font-bold font-display text-white flex items-center gap-2">
-            <Trophy className="w-6 h-6 text-cs-orange" />
-            Roleta Oficial de Formação dos Times
+          <div className="text-xs uppercase font-extrabold text-cs-orange tracking-widest flex items-center gap-1.5">
+            <Sparkles className="w-4 h-4 text-amber-400 animate-spin-slow" />
+            Palco Oficial de Sorteio de Esports
+          </div>
+          <h2 className="text-2xl sm:text-3xl font-black font-display text-white mt-1 flex items-center gap-2.5">
+            <Trophy className="w-7 h-7 text-cs-orange" />
+            Roleta de Formação de Equipes 5x5
           </h2>
-          <p className="text-xs text-slate-400">
-            Sorteio 100% criptográfico e auditado no backend Neon. Reprodução visual do resultado já registrado.
+          <p className="text-xs text-slate-400 mt-1">
+            Ordem criptográfica processada atomicamente no Neon PostgreSQL antes da animação visual.
           </p>
         </div>
 
         <div className="flex items-center gap-2">
           <button
             onClick={toggleMute}
-            className="p-2 rounded-lg bg-slate-800 text-slate-400 hover:text-white transition-colors"
-            title="Som"
+            className={`p-2.5 rounded-xl border transition-all ${
+              isMuted
+                ? 'bg-red-950/40 border-red-500/30 text-red-400'
+                : 'bg-slate-900 border-white/10 text-cs-orange hover:border-cs-orange/50 hover:bg-cs-orange/10 glow-orange'
+            }`}
+            title="Efeitos Sonoros"
           >
-            {isMuted ? <VolumeX className="w-5 h-5 text-red-400" /> : <Volume2 className="w-5 h-5 text-cs-orange" />}
+            {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
           </button>
           <button
             onClick={toggleFullscreen}
-            className="p-2 rounded-lg bg-slate-800 text-slate-400 hover:text-white transition-colors"
-            title="Tela cheia (OBS / Live)"
+            className="p-2.5 rounded-xl bg-slate-900 border border-white/10 text-sky-400 hover:text-white hover:bg-sky-500/20 transition-all glow-blue"
+            title="Modo Tela Cheia (OBS / Live Feed)"
           >
-            {isFullscreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5 text-cs-cyan" />}
+            {isFullscreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
           </button>
         </div>
       </div>
 
       {/* Main Wheel + Result Spotlight Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
-        {/* Left: Interactive Canvas Wheel */}
+        {/* Left: Interactive Canvas Wheel with Dramatic Glow */}
         <div className="lg:col-span-6 flex flex-col items-center">
-          <div className="relative">
+          <div className="relative p-3 rounded-full bg-gradient-to-b from-orange-500/20 via-transparent to-sky-500/10 border border-white/10 shadow-2xl">
             <canvas
               ref={canvasRef}
-              width={420}
-              height={420}
-              className="max-w-full drop-shadow-2xl"
+              width={430}
+              height={430}
+              className="max-w-full drop-shadow-[0_0_35px_rgba(249,115,22,0.35)]"
             />
           </div>
 
           {/* Controls */}
-          <div className="mt-6 flex flex-wrap gap-3 justify-center">
+          <div className="mt-8 flex flex-wrap gap-3.5 justify-center">
             {currentStepIndex < totalSteps ? (
               <>
                 <button
                   onClick={spinNext}
                   disabled={isSpinning}
-                  className="px-6 py-3 rounded-xl bg-gradient-to-r from-cs-orange to-amber-500 hover:from-orange-600 hover:to-amber-600 text-cs-dark font-black font-display text-lg tracking-wider flex items-center gap-2 shadow-glow-orange disabled:opacity-50 disabled:cursor-not-allowed transition-all transform active:scale-95"
+                  className="btn-shimmer px-8 py-3.5 rounded-2xl bg-gradient-to-r from-cs-orange via-amber-500 to-yellow-500 hover:from-orange-600 hover:to-amber-600 text-cs-dark font-black font-display text-xl tracking-wider flex items-center gap-2.5 glow-orange disabled:opacity-50 disabled:cursor-not-allowed transition-all transform active:scale-95 shadow-xl"
                 >
                   <Play className="w-5 h-5 fill-current" />
                   {isSpinning ? 'Girando Roleta...' : `Girar Próximo (${currentStepIndex + 1}/${totalSteps})`}
@@ -333,16 +351,16 @@ export function RouletteWheel({ candidates, steps, onComplete, isLiveMode = fals
                 <button
                   onClick={finishAllInstantly}
                   disabled={isSpinning}
-                  className="px-4 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-sm flex items-center gap-1.5 border border-slate-700 transition-colors"
+                  className="px-5 py-3.5 rounded-2xl bg-slate-900 hover:bg-slate-800 text-slate-300 font-bold text-xs uppercase tracking-wider flex items-center gap-2 border border-white/10 transition-colors"
                 >
                   <FastForward className="w-4 h-4 text-amber-400" />
-                  Pular Animação
+                  Revelar Todos
                 </button>
               </>
             ) : (
-              <div className="flex items-center gap-2 px-6 py-3 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-bold rounded-xl">
-                <CheckCircle2 className="w-6 h-6" />
-                Sorteio de Equipes Concluído com Sucesso!
+              <div className="flex items-center gap-2.5 px-8 py-4 bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 font-black font-display text-lg tracking-wide rounded-2xl shadow-glow-orange">
+                <CheckCircle2 className="w-6 h-6 text-emerald-400" />
+                Sorteio de Todas as Equipes Concluído!
               </div>
             )}
           </div>
@@ -352,24 +370,25 @@ export function RouletteWheel({ candidates, steps, onComplete, isLiveMode = fals
         <div className="lg:col-span-6 space-y-4">
           {/* Active Highlight Banner */}
           {selectedWinner ? (
-            <div className="p-4 rounded-xl bg-gradient-to-r from-orange-950/40 to-slate-900 border border-cs-orange/50 shadow-glow-orange animate-pulse-slow">
-              <div className="text-xs uppercase font-bold text-cs-orange tracking-widest mb-1">
-                Jogador Sorteado
+            <div className="p-5 rounded-2xl bg-gradient-to-r from-orange-950/50 via-slate-900 to-amber-950/40 border border-cs-orange/60 glow-orange animate-pulse-slow">
+              <div className="text-[10px] uppercase font-black text-amber-400 tracking-widest mb-1.5 flex items-center gap-1.5">
+                <Trophy className="w-3.5 h-3.5 text-cs-orange" />
+                JOGADOR SORTEADO AGORA
               </div>
               <div className="flex items-center gap-4">
                 <img
                   src={selectedWinner.avatarUrl || `https://api.dicebear.com/7.x/bottts/svg?seed=${selectedWinner.playerNickname}`}
                   alt=""
-                  className="w-14 h-14 rounded-xl bg-slate-800 border border-cs-orange p-1"
+                  className="w-16 h-16 rounded-2xl bg-slate-900 border-2 border-cs-orange p-1 shadow-lg"
                 />
                 <div>
-                  <div className="text-2xl font-black font-display text-white">
+                  <div className="text-3xl font-black font-display text-white tracking-wide">
                     {selectedWinner.playerNickname}
                   </div>
-                  <div className="text-sm text-slate-300">
-                    Alocado na equipe: <span className="font-bold text-amber-400">{selectedWinner.teamName}</span>
+                  <div className="text-sm text-slate-300 mt-0.5">
+                    Alocado em: <span className="font-black text-amber-300 font-display text-base">{selectedWinner.teamName}</span>
                     {selectedWinner.isCaptain && (
-                      <span className="ml-2 text-xs bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-full font-bold">
+                      <span className="ml-2 text-[10px] bg-amber-400 text-black px-2 py-0.5 rounded-full font-black tracking-wider uppercase">
                         CAPITÃO
                       </span>
                     )}
@@ -378,40 +397,41 @@ export function RouletteWheel({ candidates, steps, onComplete, isLiveMode = fals
               </div>
             </div>
           ) : (
-            <div className="p-4 rounded-xl bg-slate-900/50 border border-slate-800 text-slate-400 text-sm flex items-center gap-3">
-              <User className="w-8 h-8 text-slate-600" />
+            <div className="p-5 rounded-2xl bg-slate-900/60 border border-white/10 text-slate-400 text-xs flex items-center gap-3">
+              <User className="w-8 h-8 text-slate-600 shrink-0" />
               <div>
-                Pressione <span className="text-cs-orange font-bold">Girar</span> para revelar o próximo jogador da ordem oficial criptográfica.
+                Pressione <strong className="text-cs-orange">Girar Próximo</strong> para revelar o jogador sorteado pelo algoritmo criptográfico.
               </div>
             </div>
           )}
 
           {/* Teams Grid (Filling up in real time) */}
-          <div className="space-y-3 max-h-[360px] overflow-y-auto pr-2">
-            <h3 className="text-sm font-bold text-slate-300 uppercase tracking-wider">
+          <div className="space-y-3 max-h-[380px] overflow-y-auto pr-2">
+            <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+              <Shield className="w-4 h-4 text-cs-orange" />
               Equipes Formadas ({Object.keys(assignedTeams).length})
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {Object.entries(assignedTeams).map(([teamName, members]) => (
                 <div
                   key={teamName}
-                  className="p-3 rounded-lg bg-cs-card border border-cs-border hover:border-cs-orange/40 transition-colors"
+                  className="p-3.5 rounded-2xl bg-[#0c1018] border border-white/10 hover:border-cs-orange/50 transition-all shadow-md"
                 >
-                  <div className="font-display font-bold text-white text-base flex justify-between items-center mb-2">
-                    <span>{teamName}</span>
-                    <span className="text-xs text-slate-400 font-mono">
+                  <div className="font-display font-black text-white text-base flex justify-between items-center mb-2.5 pb-2 border-b border-white/5">
+                    <span className="truncate">{teamName}</span>
+                    <span className="text-xs text-amber-400 font-mono font-bold bg-amber-500/10 px-2 py-0.5 rounded-full">
                       {members.length}/5
                     </span>
                   </div>
-                  <div className="space-y-1">
+                  <div className="space-y-1.5">
                     {members.map(m => (
-                      <div key={m.playerId} className="text-xs text-slate-300 flex items-center justify-between">
-                        <span className="truncate">{m.playerNickname}</span>
-                        {m.isCaptain && <span className="text-[10px] text-amber-400 font-bold">CAP</span>}
+                      <div key={m.playerId} className="text-xs text-slate-300 flex items-center justify-between bg-slate-900/50 px-2 py-1 rounded-lg">
+                        <span className="truncate font-semibold">{m.playerNickname}</span>
+                        {m.isCaptain && <span className="text-[9px] bg-amber-400 text-black px-1.5 py-0.2 rounded font-black">CAP</span>}
                       </div>
                     ))}
                     {Array.from({ length: 5 - members.length }).map((_, i) => (
-                      <div key={i} className="text-[11px] text-slate-600 italic">
+                      <div key={i} className="text-[11px] text-slate-600 italic px-2 py-0.5 border border-dashed border-slate-800 rounded">
                         - Vaga aberta -
                       </div>
                     ))}
