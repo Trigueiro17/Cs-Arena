@@ -63,7 +63,38 @@ export function getGameModeLabel(gameMode: GameMode): string {
 }
 
 /**
- * Returns recommended Counter-Strike 2 maps for each tournament mode
+ * Resolves any user-friendly map name or display title into the exact CS2 engine map file name
+ * (e.g., "Dust II (Long)" -> "de_dust2", "Mirage" -> "de_mirage", "Inferno" -> "de_inferno")
+ * This ensures commands like `map de_dust2` never fail with "invalid map name" in the CS2 console.
+ */
+export function getCs2MapCommand(mapName: string): string {
+  if (!mapName) return 'de_dust2';
+  const clean = mapName.trim().toLowerCase();
+
+  if (clean.includes('dust') || clean === 'dust2' || clean === 'dust ii') return 'de_dust2';
+  if (clean.includes('mirage')) return 'de_mirage';
+  if (clean.includes('inferno')) return 'de_inferno';
+  if (clean.includes('nuke')) return 'de_nuke';
+  if (clean.includes('vertigo')) return 'de_vertigo';
+  if (clean.includes('overpass')) return 'de_overpass';
+  if (clean.includes('ancient')) return 'de_ancient';
+  if (clean.includes('anubis')) return 'de_anubis';
+  if (clean.includes('cobble') || clean.includes('cbble')) return 'de_cbble';
+  if (clean.includes('italy')) return 'cs_italy';
+  if (clean.includes('office')) return 'cs_office';
+  if (clean.includes('baggage')) return 'ar_baggage';
+  if (clean.includes('shoots')) return 'ar_shoots';
+  if (clean.includes('redline')) return 'aim_redline';
+  if (clean.includes('aztec')) return 'aim_aztec';
+  if (clean.includes('india')) return 'awp_india';
+  if (clean.includes('pistol')) return 'aim_pistol_cs2';
+  if (clean.includes('aim_map')) return 'aim_map';
+
+  return mapName.replace(/\s*\(.*?\)\s*/g, '').replace(/\s+/g, '_').toLowerCase();
+}
+
+/**
+ * Returns user-friendly Counter-Strike 2 maps for each tournament mode with engine-safe names
  */
 export function getRecommendedMaps(gameMode: GameMode): string[] {
   switch (gameMode) {
@@ -72,26 +103,25 @@ export function getRecommendedMaps(gameMode: GameMode): string[] {
         'aim_redline',
         'aim_map',
         'aim_aztec',
-        'aim_pistol_cs2',
         'awp_india',
-        'Mirage (Mid Duel)',
-        'Dust II (Long)',
+        'de_dust2',
+        'de_mirage',
+        'aim_pistol_cs2',
       ];
     case '2v2':
       return [
-        'Inferno (Wingman)',
-        'Vertigo (Wingman)',
-        'Nuke (Wingman)',
-        'Overpass (Wingman)',
-        'Cobblestone',
-        'Shoots',
-        'Baggage',
+        'de_inferno',
+        'de_vertigo',
+        'de_nuke',
+        'de_overpass',
+        'ar_shoots',
+        'ar_baggage',
       ];
     case '3v3':
     case '4v4':
     case '5v5':
     default:
-      return ['Mirage', 'Inferno', 'Nuke', 'Ancient', 'Anubis', 'Dust II', 'Vertigo'];
+      return ['de_mirage', 'de_inferno', 'de_dust2', 'de_nuke', 'de_ancient', 'de_anubis', 'de_vertigo'];
   }
 }
 

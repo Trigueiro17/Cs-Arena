@@ -21,7 +21,7 @@ import {
   Radio,
   Flame,
 } from 'lucide-react';
-import { GameMode, getRecommendedMaps } from '../lib/tournament-engine';
+import { GameMode, getRecommendedMaps, getCs2MapCommand } from '../lib/tournament-engine';
 
 interface MatchModalProps {
   match: any;
@@ -131,12 +131,14 @@ export function MatchModal({
     setTimeout(() => setCopiedText(null), 2500);
   };
 
+  const engineMapName = getCs2MapCommand(effectiveMapName);
+
   // Launch CS2 via Steam URL Protocol
   const handleLaunchCS2Local = () => {
     // Steam protocol to launch CS2 directly on map
-    const steamUrl = `steam://rungame/730/76561202255233023/+map ${effectiveMapName}`;
+    const steamUrl = `steam://rungame/730/76561202255233023/+map ${engineMapName}`;
     window.location.href = steamUrl;
-    notify(`Iniciando Counter-Strike 2 no mapa ${effectiveMapName}...`);
+    notify(`Iniciando Counter-Strike 2 no mapa ${engineMapName}...`);
   };
 
   const handleLaunchCS2Connect = () => {
@@ -153,7 +155,7 @@ export function MatchModal({
 
   const consoleCommand = serverIp.trim()
     ? `connect ${serverIp.trim()}${serverPassword.trim() ? `; password ${serverPassword.trim()}` : ''}`
-    : `map ${effectiveMapName}`;
+    : `map ${engineMapName}`;
 
   // Shuffle map from pool
   const handleShuffleMap = () => {
@@ -696,9 +698,13 @@ export function MatchModal({
                 </button>
               </div>
 
-              <div className="p-2.5 rounded-lg bg-black/60 font-mono text-xs text-amber-300 border border-white/5 break-all select-all">
-                {consoleCommand}
+              <div className="p-2.5 rounded-lg bg-black/60 font-mono text-xs text-amber-300 border border-white/5 break-all select-all flex items-center justify-between">
+                <span>{consoleCommand}</span>
+                <span className="text-[10px] text-slate-500 font-mono">Source 2 Engine</span>
               </div>
+              <p className="text-[10px] text-slate-400">
+                Pressione a tecla <kbd className="px-1.5 py-0.5 rounded bg-slate-800 text-amber-300 font-mono font-bold border border-white/10">~</kbd> no CS2 e cole o comando oficial acima para carregar o mapa.
+              </p>
             </div>
 
             {/* Server Configuration Form (Admin Only) */}

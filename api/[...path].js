@@ -15267,13 +15267,13 @@ var BracketService = class {
       const gameMode2 = tournament.game_mode || "5v5";
       let assignedMap;
       if (gameMode2 === "1v1") {
-        const maps1v1 = ["aim_redline", "aim_map", "aim_aztec", "awp_india", "Mirage (Mid Duel)", "Dust II (Long)"];
+        const maps1v1 = ["aim_redline", "aim_map", "aim_aztec", "awp_india", "de_dust2", "de_mirage"];
         assignedMap = maps1v1[m2.bracketPosition % maps1v1.length];
       } else if (gameMode2 === "2v2") {
-        const maps2v2 = ["Inferno (Wingman)", "Vertigo (Wingman)", "Nuke (Wingman)", "Overpass (Wingman)", "Cobblestone"];
+        const maps2v2 = ["de_inferno", "de_vertigo", "de_nuke", "de_overpass", "ar_shoots", "ar_baggage"];
         assignedMap = maps2v2[m2.bracketPosition % maps2v2.length];
       } else {
-        const maps5v5 = ["Mirage", "Inferno", "Dust II", "Nuke", "Ancient", "Anubis", "Vertigo"];
+        const maps5v5 = ["de_mirage", "de_inferno", "de_dust2", "de_nuke", "de_ancient", "de_anubis", "de_vertigo"];
         assignedMap = maps5v5[m2.bracketPosition % maps5v5.length];
       }
       const [insertedMatch] = await sql`
