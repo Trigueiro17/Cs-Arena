@@ -65,6 +65,7 @@ export function MatchModal({
   const [serverIp, setServerIp] = useState<string>(match.server_ip || '');
   const [serverPassword, setServerPassword] = useState<string>(match.server_password || '');
   const [isSavingServer, setIsSavingServer] = useState(false);
+  const [showServerGuide, setShowServerGuide] = useState(false);
 
   // Finalize Manual state
   const [scoreA, setScoreA] = useState<number>(
@@ -750,6 +751,44 @@ export function MatchModal({
                       className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white font-mono focus:border-cs-orange focus:outline-none"
                     />
                   </div>
+                </div>
+
+                {/* Expandable Server Hosting Guide */}
+                <div className="pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setShowServerGuide(!showServerGuide)}
+                    className="text-[11px] text-cs-cyan hover:underline font-bold flex items-center gap-1"
+                  >
+                    💡 {showServerGuide ? 'Ocultar guia de servidor' : 'Como criar e conectar o servidor de CS2?'}
+                  </button>
+
+                  {showServerGuide && (
+                    <div className="mt-2.5 p-3.5 rounded-xl bg-black/60 border border-white/10 text-xs text-slate-300 space-y-3">
+                      <div>
+                        <div className="font-bold text-amber-400 flex items-center gap-1.5 mb-1">
+                          <span>Opção 1: Jogar no seu PC sem custos (Radmin VPN ou Hamachi)</span>
+                        </div>
+                        <p className="text-[11px] text-slate-300 leading-relaxed">
+                          1. Você e o adversário entram na mesma rede no <b>Radmin VPN</b> (ou Hamachi).<br />
+                          2. No seu CS2, abra o console (<kbd className="font-mono text-amber-300">~</kbd>) e digite: <code className="bg-slate-800 px-1 py-0.5 rounded text-amber-300 font-mono">sv_lan 0; map {engineMapName}</code><br />
+                          3. Copie o seu IP do Radmin (ex: <code className="bg-slate-800 px-1 py-0.5 rounded text-cyan-300 font-mono">26.120.45.10:27015</code>), cole no campo acima e clique em <b>Salvar Servidor</b>.<br />
+                          4. Agora basta clicar em <b>Conectar ao Servidor</b> que a Steam abre e conecta os duelistas direto!
+                        </p>
+                      </div>
+
+                      <div className="pt-2 border-t border-white/5">
+                        <div className="font-bold text-cyan-400 flex items-center gap-1.5 mb-1">
+                          <span>Opção 2: Servidor Dedicado em Nuvem (Dathost / VPS / MatchZy)</span>
+                        </div>
+                        <p className="text-[11px] text-slate-300 leading-relaxed">
+                          1. Crie ou utilize um servidor dedicado de CS2 (ex: Dathost, GamersClub ou VPS).<br />
+                          2. Cole o <b>IP:Porta</b> e a <b>Senha</b> nos campos acima e clique em <b>Salvar Servidor</b>.<br />
+                          3. Os jogadores clicam em <b>Conectar ao Servidor</b> e entram na partida instantaneamente!
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
