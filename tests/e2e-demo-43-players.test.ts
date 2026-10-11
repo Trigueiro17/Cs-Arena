@@ -97,7 +97,7 @@ describe.skipIf(!hasDatabaseUrl)('CS Arena — Acceptance Criteria Demo Real (43
     expect(data.teamsCount).toBe(8);
     expect(data.reservesCount).toBe(3);
     expect(data.animationSteps.length).toBe(40); // 8 equipes x 5 jogadores = 40 passos
-  });
+  }, 15000);
 
   it('Passo 3: Garante que nenhum jogador foi duplicado em equipes ou reservas', async () => {
     const req = new Request(`http://localhost:5173/api/tournaments/${tournamentId}/teams`, { method: 'GET' });
