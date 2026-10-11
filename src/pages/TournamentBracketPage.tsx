@@ -2,7 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import { Link } from '../lib/router';
 import { BracketView } from '../components/BracketView';
-import { GitFork, Trophy, ArrowLeft, RefreshCw, Tv } from 'lucide-react';
+import { GitFork, Trophy, ArrowLeft, RefreshCw, Tv, Crosshair } from 'lucide-react';
+import { getGameModeLabel } from '../lib/tournament-engine';
 
 export function TournamentBracketPage({ params }: { params: Record<string, string> }) {
   const { id } = params;
@@ -69,7 +70,8 @@ export function TournamentBracketPage({ params }: { params: Record<string, strin
       <div className="glass-panel rounded-2xl p-6 border border-cs-border">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <div className="text-xs uppercase font-bold text-cs-orange tracking-wider">
+            <div className="text-xs uppercase font-bold text-cs-orange tracking-wider flex items-center gap-1.5">
+              <Crosshair className="w-3.5 h-3.5" />
               Chave Oficial Mata-Mata (Eliminação Simples)
             </div>
             <h1 className="text-3xl font-black font-display text-white mt-1">
@@ -78,6 +80,12 @@ export function TournamentBracketPage({ params }: { params: Record<string, strin
             <p className="text-xs text-slate-400">
               Formato MD{tournament?.best_of} • Vencedores avançam automaticamente para a próxima fase até a Grande Final.
             </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="px-3.5 py-1.5 rounded-xl bg-orange-500/10 border border-orange-500/30 text-amber-300 font-mono font-bold text-xs flex items-center gap-1.5">
+              <Crosshair className="w-3.5 h-3.5 text-cs-orange" />
+              {tournament?.game_mode ? getGameModeLabel(tournament.game_mode) : 'Counter-Strike 2'}
+            </span>
           </div>
         </div>
       </div>

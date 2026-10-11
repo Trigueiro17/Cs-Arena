@@ -1,5 +1,15 @@
 import React, { useState } from 'react';
-import { Trophy, Shield, CheckCircle2, Clock, Sparkles, ChevronRight, Award, MapPin } from 'lucide-react';
+import {
+  Trophy,
+  Shield,
+  CheckCircle2,
+  Clock,
+  Sparkles,
+  ChevronRight,
+  Award,
+  MapPin,
+  Crosshair,
+} from 'lucide-react';
 import { MatchModal } from './MatchModal';
 import { useAuth } from '../context/AuthContext';
 
@@ -14,13 +24,13 @@ export function BracketView({ rounds, matches, onRefresh, tournament }: BracketV
   const { isAdmin } = useAuth();
   const [selectedMatch, setSelectedMatch] = useState<any | null>(null);
 
-  const matchesByRound = rounds.map(r => ({
+  const matchesByRound = rounds.map((r) => ({
     round: r,
-    matches: matches.filter(m => m.round_id === r.id),
+    matches: matches.filter((m) => m.round_id === r.id),
   }));
 
   const finalRound = rounds[rounds.length - 1];
-  const finalMatch = finalRound ? matches.find(m => m.round_id === finalRound.id) : null;
+  const finalMatch = finalRound ? matches.find((m) => m.round_id === finalRound.id) : null;
   const championName = finalMatch?.winner_player_name || finalMatch?.winner_name || null;
 
   return (
@@ -79,12 +89,13 @@ export function BracketView({ rounds, matches, onRefresh, tournament }: BracketV
 
               {/* Match Cards */}
               <div className="flex-1 flex flex-col justify-around gap-5">
-                {roundMatches.map(match => {
+                {roundMatches.map((match) => {
                   const isCompleted = match.status === 'completed';
                   const isBye = match.is_bye;
                   const hasPartA = Boolean(match.team_a_id || match.player_a_id);
                   const hasPartB = Boolean(match.team_b_id || match.player_b_id);
-                  const canEdit = isAdmin && !isBye && hasPartA && hasPartB;
+                  const canOpenModal = !isBye && hasPartA && hasPartB;
+                  const canEdit = isAdmin && canOpenModal;
 
                   const partAName = match.player_a_name || match.team_a_name || 'A definir';
                   const partBName = isBye
@@ -99,13 +110,13 @@ export function BracketView({ rounds, matches, onRefresh, tournament }: BracketV
                     (match.winner_player_id && match.winner_player_id === match.player_b_id) ||
                     (match.winner_id && match.winner_id === match.team_b_id);
 
-                  const mapLabel = match.map_name || (match.maps?.[0]?.map_name) || null;
+                  const mapLabel = match.map_name || match.maps?.[0]?.map_name || null;
 
                   return (
                     <div
                       key={match.id}
                       onClick={() => {
-                        if (canEdit) setSelectedMatch(match);
+                        if (canOpenModal) setSelectedMatch(match);
                       }}
                       className={`p-4 rounded-2xl border transition-all duration-200 relative group ${
                         isBye
@@ -113,7 +124,7 @@ export function BracketView({ rounds, matches, onRefresh, tournament }: BracketV
                           : match.winner_id || match.winner_player_id
                           ? 'bg-[#0e131d] border-white/10 hover:border-cs-orange/60 shadow-lg'
                           : 'bg-[#0b0f17] border-white/10 hover:border-slate-500 shadow-md'
-                      } ${canEdit ? 'cursor-pointer hover:scale-[1.02] hover:shadow-xl' : ''}`}
+                      } ${canOpenModal ? 'cursor-pointer hover:scale-[1.02] hover:shadow-xl' : ''}`}
                     >
                       {/* Match Header Tag */}
                       <div className="flex items-center justify-between text-[11px] text-slate-400 font-bold mb-2.5">
@@ -121,12 +132,6 @@ export function BracketView({ rounds, matches, onRefresh, tournament }: BracketV
                           <span className="bg-slate-800/80 px-2 py-0.5 rounded font-mono text-[10px] text-slate-300">
                             MD{match.best_of || 1}
                           </span>
-                          {mapLabel && (
-                            <span className="text-[10px] text-cs-orange font-mono flex items-center gap-1">
-                              <MapPin className="w-2.5 h-2.5" />
-                              {mapLabel}
-                            </span>
-                          )}
                         </div>
 
                         {isBye ? (
@@ -144,6 +149,26 @@ export function BracketView({ rounds, matches, onRefresh, tournament }: BracketV
                         ) : (
                           <span className="text-slate-500 text-[10px]">Aguardando Vencedor</span>
                         )}
+                      </div>
+
+                      {/* Official CS2 Map Spotlight Banner */}
+                      <div className="mb-3 px-3 py-2 rounded-xl bg-gradient-to-r from-orange-500/15 via-amber-500/10 to-slate-900 border border-orange-500/30 flex items-center justify-between shadow-sm">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="w-7 h-7 rounded-lg bg-orange-500/20 border border-orange-500/30 flex items-center justify-center text-cs-orange shrink-0">
+                            <Crosshair className="w-4 h-4" />
+                          </div>
+                          <div className="truncate">
+                            <span className="text-[9px] uppercase font-bold text-slate-400 block tracking-wider leading-none">
+                              Mapa Oficial
+                            </span>
+                            <span className="text-xs font-mono font-black text-amber-300 tracking-wide truncate block mt-0.5">
+                              {mapLabel || 'A Definir'}
+                            </span>
+                          </div>
+                        </div>
+                        <span className="text-[9px] uppercase tracking-wider font-mono font-bold px-2 py-0.5 rounded bg-black/40 text-slate-300 border border-white/5 shrink-0">
+                          {tournament?.game_mode ? `${tournament.game_mode} MAP` : 'CS2'}
+                        </span>
                       </div>
 
                       {/* Participant A Slot */}
@@ -206,13 +231,19 @@ export function BracketView({ rounds, matches, onRefresh, tournament }: BracketV
                         )}
                       </div>
 
-                      {/* Admin Quick Action Indicator */}
-                      {canEdit && (
-                        <div className="mt-2.5 pt-2 border-t border-white/5 text-[10px] text-cs-orange text-center font-bold tracking-widest uppercase flex items-center justify-center gap-1 group-hover:text-amber-400 transition-colors">
-                          <span>Arbitragem • Registrar Placar MD1</span>
+                      {/* Action Indicators */}
+                      {canEdit ? (
+                        <div className="mt-2.5 pt-2 border-t border-white/10 text-[10px] text-cs-orange text-center font-bold tracking-widest uppercase flex items-center justify-center gap-1 group-hover:text-amber-400 transition-colors">
+                          <Crosshair className="w-3 h-3" />
+                          <span>Gerenciar Mapa & Placar MD{match.best_of || 1}</span>
                           <ChevronRight className="w-3 h-3" />
                         </div>
-                      )}
+                      ) : canOpenModal ? (
+                        <div className="mt-2.5 pt-2 border-t border-white/5 text-[10px] text-slate-400 text-center font-bold tracking-widest uppercase flex items-center justify-center gap-1 group-hover:text-slate-200 transition-colors">
+                          <span>Ver Detalhes do Confronto</span>
+                          <ChevronRight className="w-3 h-3" />
+                        </div>
+                      ) : null}
                     </div>
                   );
                 })}
@@ -222,11 +253,12 @@ export function BracketView({ rounds, matches, onRefresh, tournament }: BracketV
         </div>
       </div>
 
-      {/* Match Result Modal */}
+      {/* Match Result / Map Details Modal */}
       {selectedMatch && (
         <MatchModal
           match={selectedMatch}
           tournamentGameMode={tournament?.game_mode}
+          readOnly={!isAdmin}
           onClose={() => setSelectedMatch(null)}
           onSuccess={() => {
             if (onRefresh) onRefresh();

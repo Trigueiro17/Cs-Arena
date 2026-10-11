@@ -175,6 +175,17 @@ export const api = {
     return result;
   },
 
+  async updateMatchMap(matchId: string, mapName: string) {
+    const res = await fetch(`/api/matches/${matchId}/map`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ mapName }),
+    });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error || 'Falha ao atualizar mapa da partida');
+    return result;
+  },
+
   async getRanking(tournamentId: string) {
     const res = await fetch(`/api/tournaments/${tournamentId}/ranking`, { headers: getHeaders() });
     if (!res.ok) throw new Error('Falha ao buscar classificação do torneio');

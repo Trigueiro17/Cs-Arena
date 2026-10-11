@@ -15264,20 +15264,42 @@ var BracketService = class {
         teamBId = m2.teamBId || null;
         winnerId = m2.winnerId || null;
       }
+      const gameMode2 = tournament.game_mode || "5v5";
+      let assignedMap;
+      if (gameMode2 === "1v1") {
+        const maps1v1 = ["aim_redline", "aim_map", "aim_aztec", "awp_india", "Mirage (Mid Duel)", "Dust II (Long)"];
+        assignedMap = maps1v1[m2.bracketPosition % maps1v1.length];
+      } else if (gameMode2 === "2v2") {
+        const maps2v2 = ["Inferno (Wingman)", "Vertigo (Wingman)", "Nuke (Wingman)", "Overpass (Wingman)", "Cobblestone"];
+        assignedMap = maps2v2[m2.bracketPosition % maps2v2.length];
+      } else {
+        const maps5v5 = ["Mirage", "Inferno", "Dust II", "Nuke", "Ancient", "Anubis", "Vertigo"];
+        assignedMap = maps5v5[m2.bracketPosition % maps5v5.length];
+      }
       const [insertedMatch] = await sql`
         INSERT INTO cs_arena.matches (
           tournament_id, round_id, bracket_position,
           team_a_id, team_b_id, player_a_id, player_b_id,
-          winner_id, winner_player_id, is_bye, best_of, status
+          winner_id, winner_player_id, is_bye, best_of, status, map_name
         )
         VALUES (
           ${tournamentId}, ${roundDbId}, ${m2.bracketPosition},
           ${teamAId}, ${teamBId}, ${playerAId}, ${playerBId},
-          ${winnerId}, ${winnerPlayerId}, ${m2.isBye}, ${bestOf}, ${m2.status}
+          ${winnerId}, ${winnerPlayerId}, ${m2.isBye}, ${bestOf}, ${m2.status}, ${assignedMap}
         )
         RETURNING id;
       `;
       matchIdMap.set(m2.bracketPosition, insertedMatch.id);
+      if (!m2.isBye) {
+        await sql`
+          INSERT INTO cs_arena.match_maps (
+            match_id, order_number, map_name, score_a, score_b
+          )
+          VALUES (
+            ${insertedMatch.id}, 1, ${assignedMap}, 0, 0
+          );
+        `;
+      }
     }
     for (const m2 of generated.matches) {
       if (m2.nextRoundMatchIndex !== void 0) {
@@ -15429,6 +15451,38 @@ var MatchService = class {
       ORDER BY order_number ASC;
     `;
     return { match, maps };
+  }
+  static async updateMatchMap(matchId, mapName) {
+    if (!mapName || !mapName.trim()) {
+      throw new Error("Nome do mapa \xE9 obrigat\xF3rio.");
+    }
+    const cleanMap = mapName.trim();
+    const [match] = await sql`
+      SELECT id, status FROM cs_arena.matches WHERE id = ${matchId};
+    `;
+    if (!match)
+      throw new Error("Partida n\xE3o encontrada.");
+    await sql`
+      UPDATE cs_arena.matches
+      SET map_name = ${cleanMap}
+      WHERE id = ${matchId};
+    `;
+    const [existing] = await sql`
+      SELECT id FROM cs_arena.match_maps WHERE match_id = ${matchId} AND order_number = 1;
+    `;
+    if (existing) {
+      await sql`
+        UPDATE cs_arena.match_maps
+        SET map_name = ${cleanMap}
+        WHERE id = ${existing.id};
+      `;
+    } else {
+      await sql`
+        INSERT INTO cs_arena.match_maps (match_id, order_number, map_name, score_a, score_b)
+        VALUES (${matchId}, 1, ${cleanMap}, 0, 0);
+      `;
+    }
+    return { success: true, mapName: cleanMap };
   }
   static async submitMatchResult(matchId, input, actor) {
     const { maps, evidenceUrl } = input;
@@ -15899,6 +15953,18 @@ async function handleMatches(req, segments) {
       return jsonResponse(result);
     } catch (err) {
       return jsonResponse({ error: err.message || "Erro ao registrar resultado da partida" }, 400);
+    }
+  }
+  if (subAction === "map" && (method === "POST" || method === "PATCH")) {
+    const authCheck = await requireAdmin(req);
+    if ("errorResponse" in authCheck)
+      return authCheck.errorResponse;
+    try {
+      const body = await req.json();
+      const result = await MatchService.updateMatchMap(matchId, body.mapName);
+      return jsonResponse(result);
+    } catch (err) {
+      return jsonResponse({ error: err.message || "Erro ao atualizar mapa da partida" }, 400);
     }
   }
   return jsonResponse({ error: "A\xE7\xE3o n\xE3o reconhecida." }, 404);

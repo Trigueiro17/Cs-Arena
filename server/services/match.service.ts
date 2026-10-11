@@ -48,6 +48,42 @@ export class MatchService {
     return { match, maps };
   }
 
+  static async updateMatchMap(matchId: string, mapName: string) {
+    if (!mapName || !mapName.trim()) {
+      throw new Error('Nome do mapa é obrigatório.');
+    }
+    const cleanMap = mapName.trim();
+
+    const [match] = await sql`
+      SELECT id, status FROM cs_arena.matches WHERE id = ${matchId};
+    `;
+    if (!match) throw new Error('Partida não encontrada.');
+
+    await sql`
+      UPDATE cs_arena.matches
+      SET map_name = ${cleanMap}
+      WHERE id = ${matchId};
+    `;
+
+    const [existing] = await sql`
+      SELECT id FROM cs_arena.match_maps WHERE match_id = ${matchId} AND order_number = 1;
+    `;
+    if (existing) {
+      await sql`
+        UPDATE cs_arena.match_maps
+        SET map_name = ${cleanMap}
+        WHERE id = ${existing.id};
+      `;
+    } else {
+      await sql`
+        INSERT INTO cs_arena.match_maps (match_id, order_number, map_name, score_a, score_b)
+        VALUES (${matchId}, 1, ${cleanMap}, 0, 0);
+      `;
+    }
+
+    return { success: true, mapName: cleanMap };
+  }
+
   static async submitMatchResult(
     matchId: string,
     input: SubmitMatchResultInput,

@@ -58,5 +58,19 @@ export async function handleMatches(req: Request, segments: string[]): Promise<R
     }
   }
 
+  // 3. POST or PATCH /api/matches/:id/map — Update assigned official map
+  if (subAction === 'map' && (method === 'POST' || method === 'PATCH')) {
+    const authCheck = await requireAdmin(req);
+    if ('errorResponse' in authCheck) return authCheck.errorResponse;
+
+    try {
+      const body = await req.json();
+      const result = await MatchService.updateMatchMap(matchId, body.mapName);
+      return jsonResponse(result);
+    } catch (err: any) {
+      return jsonResponse({ error: err.message || 'Erro ao atualizar mapa da partida' }, 400);
+    }
+  }
+
   return jsonResponse({ error: 'Ação não reconhecida.' }, 404);
 }

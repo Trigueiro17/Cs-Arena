@@ -93,20 +93,45 @@ export class BracketService {
         winnerId = m.winnerId || null;
       }
 
+      // Automatically assign official map according to game mode
+      const gameMode = tournament.game_mode || '5v5';
+      let assignedMap: string;
+      if (gameMode === '1v1') {
+        const maps1v1 = ['aim_redline', 'aim_map', 'aim_aztec', 'awp_india', 'Mirage (Mid Duel)', 'Dust II (Long)'];
+        assignedMap = maps1v1[m.bracketPosition % maps1v1.length];
+      } else if (gameMode === '2v2') {
+        const maps2v2 = ['Inferno (Wingman)', 'Vertigo (Wingman)', 'Nuke (Wingman)', 'Overpass (Wingman)', 'Cobblestone'];
+        assignedMap = maps2v2[m.bracketPosition % maps2v2.length];
+      } else {
+        const maps5v5 = ['Mirage', 'Inferno', 'Dust II', 'Nuke', 'Ancient', 'Anubis', 'Vertigo'];
+        assignedMap = maps5v5[m.bracketPosition % maps5v5.length];
+      }
+
       const [insertedMatch] = await sql`
         INSERT INTO cs_arena.matches (
           tournament_id, round_id, bracket_position,
           team_a_id, team_b_id, player_a_id, player_b_id,
-          winner_id, winner_player_id, is_bye, best_of, status
+          winner_id, winner_player_id, is_bye, best_of, status, map_name
         )
         VALUES (
           ${tournamentId}, ${roundDbId}, ${m.bracketPosition},
           ${teamAId}, ${teamBId}, ${playerAId}, ${playerBId},
-          ${winnerId}, ${winnerPlayerId}, ${m.isBye}, ${bestOf}, ${m.status}
+          ${winnerId}, ${winnerPlayerId}, ${m.isBye}, ${bestOf}, ${m.status}, ${assignedMap}
         )
         RETURNING id;
       `;
       matchIdMap.set(m.bracketPosition, insertedMatch.id);
+
+      if (!m.isBye) {
+        await sql`
+          INSERT INTO cs_arena.match_maps (
+            match_id, order_number, map_name, score_a, score_b
+          )
+          VALUES (
+            ${insertedMatch.id}, 1, ${assignedMap}, 0, 0
+          );
+        `;
+      }
     }
 
     // Second pass: link next_match_id and next_match_slot and advance BYEs
