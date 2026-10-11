@@ -293,6 +293,15 @@ export async function runMigrations() {
   await sql`CREATE INDEX IF NOT EXISTS player_user_id_idx ON cs_arena.players(user_id);`;
   await sql`CREATE INDEX IF NOT EXISTS player_steam_id_idx ON cs_arena.players(steam_id);`;
 
+  // 22. Suporte a Servidor de CS2, Conexão Steam e Placar ao Vivo (GSI / MatchZy)
+  await sql`ALTER TABLE cs_arena.matches ADD COLUMN IF NOT EXISTS live_score_a INTEGER DEFAULT 0;`;
+  await sql`ALTER TABLE cs_arena.matches ADD COLUMN IF NOT EXISTS live_score_b INTEGER DEFAULT 0;`;
+  await sql`ALTER TABLE cs_arena.matches ADD COLUMN IF NOT EXISTS live_phase TEXT DEFAULT 'scheduled';`;
+  await sql`ALTER TABLE cs_arena.matches ADD COLUMN IF NOT EXISTS server_ip TEXT;`;
+  await sql`ALTER TABLE cs_arena.matches ADD COLUMN IF NOT EXISTS server_password TEXT;`;
+  await sql`ALTER TABLE cs_arena.tournaments ADD COLUMN IF NOT EXISTS default_server_ip TEXT;`;
+  await sql`ALTER TABLE cs_arena.tournaments ADD COLUMN IF NOT EXISTS default_server_password TEXT;`;
+
   console.log('✅ Todas as tabelas, índices e constraints no schema cs_arena foram criadas com sucesso!');
 }
 

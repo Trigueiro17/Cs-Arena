@@ -90,6 +90,14 @@ export async function router(req: Request): Promise<Response> {
     return handleMatches(req, segments.slice(1));
   }
 
+  if (primary === 'gsi') {
+    const matchId = url.searchParams.get('matchId') || segments[1];
+    if (matchId) {
+      return handleMatches(req, [matchId, 'gsi']);
+    }
+    return jsonResponse({ ok: true, service: 'CS Arena GSI Gateway' });
+  }
+
   if (primary === 'users') {
     return handleUsers(req, segments.slice(1));
   }

@@ -97,6 +97,16 @@ export function BracketView({ rounds, matches, onRefresh, tournament }: BracketV
                   const canOpenModal = !isBye && hasPartA && hasPartB;
                   const canEdit = isAdmin && canOpenModal;
 
+                  const isLive =
+                    !isCompleted &&
+                    !isBye &&
+                    (match.status === 'in_progress' ||
+                      match.live_phase === 'live' ||
+                      match.live_score_a > 0 ||
+                      match.live_score_b > 0);
+                  const liveScoreA = match.live_score_a ?? 0;
+                  const liveScoreB = match.live_score_b ?? 0;
+
                   const partAName = match.player_a_name || match.team_a_name || 'A definir';
                   const partBName = isBye
                     ? '(Sem oponente / BYE)'
@@ -121,6 +131,8 @@ export function BracketView({ rounds, matches, onRefresh, tournament }: BracketV
                       className={`p-4 rounded-2xl border transition-all duration-200 relative group ${
                         isBye
                           ? 'bg-slate-900/30 border-slate-800/80 opacity-70'
+                          : isLive
+                          ? 'bg-[#121622] border-red-500/40 hover:border-red-500 shadow-xl shadow-red-950/20'
                           : match.winner_id || match.winner_player_id
                           ? 'bg-[#0e131d] border-white/10 hover:border-cs-orange/60 shadow-lg'
                           : 'bg-[#0b0f17] border-white/10 hover:border-slate-500 shadow-md'
@@ -141,6 +153,11 @@ export function BracketView({ rounds, matches, onRefresh, tournament }: BracketV
                         ) : isCompleted ? (
                           <span className="text-emerald-400 flex items-center gap-1 font-bold text-[10px] bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
                             <CheckCircle2 className="w-3 h-3" /> Finalizado
+                          </span>
+                        ) : isLive ? (
+                          <span className="text-red-400 flex items-center gap-1.5 font-bold text-[10px] bg-red-500/15 px-2.5 py-0.5 rounded border border-red-500/30 animate-pulse font-mono">
+                            <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping" />
+                            AO VIVO • {liveScoreA} - {liveScoreB}
                           </span>
                         ) : hasPartA && hasPartB ? (
                           <span className="text-amber-400 flex items-center gap-1 text-[10px] bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
@@ -196,9 +213,20 @@ export function BracketView({ rounds, matches, onRefresh, tournament }: BracketV
                             {partAName}
                           </span>
                         </div>
-                        {isWinnerA && (
-                          <Trophy className="w-4 h-4 text-amber-400 shrink-0" />
-                        )}
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {isLive ? (
+                            <span className="text-xs font-mono font-black text-amber-300 px-2 py-0.5 rounded bg-black/60 border border-amber-400/30">
+                              {liveScoreA}
+                            </span>
+                          ) : isCompleted && (match.maps?.[0]?.score_a !== undefined || match.live_score_a !== undefined) ? (
+                            <span className="text-xs font-mono font-bold text-slate-300 px-1.5 py-0.5 rounded bg-black/40">
+                              {match.maps?.[0]?.score_a ?? match.live_score_a}
+                            </span>
+                          ) : null}
+                          {isWinnerA && (
+                            <Trophy className="w-4 h-4 text-amber-400 shrink-0" />
+                          )}
+                        </div>
                       </div>
 
                       {/* Participant B Slot */}
@@ -226,21 +254,32 @@ export function BracketView({ rounds, matches, onRefresh, tournament }: BracketV
                             {partBName}
                           </span>
                         </div>
-                        {isWinnerB && (
-                          <Trophy className="w-4 h-4 text-amber-400 shrink-0" />
-                        )}
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {isLive ? (
+                            <span className="text-xs font-mono font-black text-amber-300 px-2 py-0.5 rounded bg-black/60 border border-amber-400/30">
+                              {liveScoreB}
+                            </span>
+                          ) : isCompleted && (match.maps?.[0]?.score_b !== undefined || match.live_score_b !== undefined) ? (
+                            <span className="text-xs font-mono font-bold text-slate-300 px-1.5 py-0.5 rounded bg-black/40">
+                              {match.maps?.[0]?.score_b ?? match.live_score_b}
+                            </span>
+                          ) : null}
+                          {isWinnerB && (
+                            <Trophy className="w-4 h-4 text-amber-400 shrink-0" />
+                          )}
+                        </div>
                       </div>
 
                       {/* Action Indicators */}
                       {canEdit ? (
                         <div className="mt-2.5 pt-2 border-t border-white/10 text-[10px] text-cs-orange text-center font-bold tracking-widest uppercase flex items-center justify-center gap-1 group-hover:text-amber-400 transition-colors">
                           <Crosshair className="w-3 h-3" />
-                          <span>Gerenciar Mapa & Placar MD{match.best_of || 1}</span>
+                          <span>{isLive ? 'Controlar Placar Ao Vivo' : 'Abrir CS2 & Placar Ao Vivo'}</span>
                           <ChevronRight className="w-3 h-3" />
                         </div>
                       ) : canOpenModal ? (
                         <div className="mt-2.5 pt-2 border-t border-white/5 text-[10px] text-slate-400 text-center font-bold tracking-widest uppercase flex items-center justify-center gap-1 group-hover:text-slate-200 transition-colors">
-                          <span>Ver Detalhes do Confronto</span>
+                          <span>{isLive ? `Acompanhar Placar (${liveScoreA} x ${liveScoreB})` : 'Ver Detalhes do Confronto'}</span>
                           <ChevronRight className="w-3 h-3" />
                         </div>
                       ) : null}

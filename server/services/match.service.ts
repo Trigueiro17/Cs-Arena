@@ -84,6 +84,131 @@ export class MatchService {
     return { success: true, mapName: cleanMap };
   }
 
+  static async updateLiveScore(
+    matchId: string,
+    input: {
+      scoreA?: number;
+      scoreB?: number;
+      phase?: string;
+      serverIp?: string;
+      serverPassword?: string;
+    }
+  ) {
+    const [match] = await sql`
+      SELECT id, status, live_score_a, live_score_b FROM cs_arena.matches WHERE id = ${matchId};
+    `;
+    if (!match) throw new Error('Partida não encontrada.');
+
+    const newScoreA = input.scoreA !== undefined ? Math.max(0, Number(input.scoreA)) : match.live_score_a ?? 0;
+    const newScoreB = input.scoreB !== undefined ? Math.max(0, Number(input.scoreB)) : match.live_score_b ?? 0;
+    const newPhase = input.phase || (match.status === 'completed' ? 'completed' : 'live');
+    const newStatus =
+      match.status === 'completed'
+        ? 'completed'
+        : newPhase === 'live' || newScoreA > 0 || newScoreB > 0
+        ? 'in_progress'
+        : match.status;
+
+    await sql`
+      UPDATE cs_arena.matches
+      SET 
+        live_score_a = ${newScoreA},
+        live_score_b = ${newScoreB},
+        live_phase = ${newPhase},
+        status = ${newStatus},
+        server_ip = COALESCE(${input.serverIp ?? null}, server_ip),
+        server_password = COALESCE(${input.serverPassword ?? null}, server_password)
+      WHERE id = ${matchId};
+    `;
+
+    // Also update order 1 in match_maps for consistency
+    await sql`
+      UPDATE cs_arena.match_maps
+      SET score_a = ${newScoreA}, score_b = ${newScoreB}
+      WHERE match_id = ${matchId} AND order_number = 1;
+    `;
+
+    return {
+      success: true,
+      matchId,
+      scoreA: newScoreA,
+      scoreB: newScoreB,
+      phase: newPhase,
+      status: newStatus,
+    };
+  }
+
+  static async updateServerConfig(matchId: string, serverIp: string, serverPassword?: string) {
+    await sql`
+      UPDATE cs_arena.matches
+      SET server_ip = ${serverIp.trim() || null}, server_password = ${serverPassword?.trim() || null}
+      WHERE id = ${matchId};
+    `;
+    return { success: true, serverIp, serverPassword };
+  }
+
+  static async handleGSIPayload(matchId: string, payload: any) {
+    const [match] = await sql`
+      SELECT m.id, m.map_name, m.status, m.tournament_id, t.game_mode
+      FROM cs_arena.matches m
+      JOIN cs_arena.tournaments t ON m.tournament_id = t.id
+      WHERE m.id = ${matchId};
+    `;
+    if (!match) throw new Error('Partida não encontrada para GSI.');
+
+    let scoreA = 0;
+    let scoreB = 0;
+    let phase = 'live';
+    let mapFromGSI: string | null = null;
+
+    if (payload.map) {
+      phase = payload.map.phase || 'live';
+      mapFromGSI = payload.map.name || null;
+      const ctScore = Number(payload.map.team_ct?.score ?? 0);
+      const tScore = Number(payload.map.team_t?.score ?? 0);
+      scoreA = ctScore;
+      scoreB = tScore;
+    } else if (payload.team1 !== undefined || payload.team2 !== undefined) {
+      scoreA = Number(payload.team1?.score ?? payload.scoreA ?? 0);
+      scoreB = Number(payload.team2?.score ?? payload.scoreB ?? 0);
+      mapFromGSI = payload.map_name || null;
+    } else if (payload.scoreA !== undefined) {
+      scoreA = Number(payload.scoreA);
+      scoreB = Number(payload.scoreB ?? 0);
+    }
+
+    if (mapFromGSI && !match.map_name) {
+      await MatchService.updateMatchMap(matchId, mapFromGSI);
+    }
+
+    return await MatchService.updateLiveScore(matchId, {
+      scoreA,
+      scoreB,
+      phase,
+    });
+  }
+
+  static generateGSIConfig(matchId: string, origin: string) {
+    return `"CS Arena GSI v1.0"
+{
+ "uri" "${origin}/api/matches/${matchId}/gsi"
+ "timeout" "5.0"
+ "buffer"  "0.1"
+ "throttle" "0.5"
+ "heartbeat" "15.0"
+ "data"
+ {
+   "provider"            "1"
+   "map"                 "1"
+   "round"               "1"
+   "player_id"           "1"
+   "allplayers_id"       "1"
+   "allplayers_match_stats" "1"
+ }
+}`;
+  }
+
+
   static async submitMatchResult(
     matchId: string,
     input: SubmitMatchResultInput,

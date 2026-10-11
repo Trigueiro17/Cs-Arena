@@ -220,6 +220,7 @@ export class BracketService {
         m.id, m.round_id, br.round_number, br.name as round_name, m.bracket_position, m.is_bye, m.best_of, m.status,
         m.next_match_id, m.next_match_slot, m.winner_id, m.winner_player_id,
         m.map_name, m.evidence_url, m.scheduled_at, m.completed_at,
+        m.live_score_a, m.live_score_b, m.live_phase, m.server_ip, m.server_password,
         t1.id as team_a_id, t1.name as team_a_name, t1.seed as team_a_seed,
         t2.id as team_b_id, t2.name as team_b_name, t2.seed as team_b_seed,
         w.name as winner_name,

@@ -15375,6 +15375,7 @@ var BracketService = class {
         m.id, m.round_id, br.round_number, br.name as round_name, m.bracket_position, m.is_bye, m.best_of, m.status,
         m.next_match_id, m.next_match_slot, m.winner_id, m.winner_player_id,
         m.map_name, m.evidence_url, m.scheduled_at, m.completed_at,
+        m.live_score_a, m.live_score_b, m.live_phase, m.server_ip, m.server_password,
         t1.id as team_a_id, t1.name as team_a_name, t1.seed as team_a_seed,
         t2.id as team_b_id, t2.name as team_b_name, t2.seed as team_b_seed,
         w.name as winner_name,
@@ -15418,7 +15419,7 @@ var BracketService = class {
 };
 
 // server/services/match.service.ts
-var MatchService = class {
+var MatchService = class _MatchService {
   static async getMatch(matchId) {
     const [match] = await sql`
       SELECT 
@@ -15483,6 +15484,105 @@ var MatchService = class {
       `;
     }
     return { success: true, mapName: cleanMap };
+  }
+  static async updateLiveScore(matchId, input) {
+    const [match] = await sql`
+      SELECT id, status, live_score_a, live_score_b FROM cs_arena.matches WHERE id = ${matchId};
+    `;
+    if (!match)
+      throw new Error("Partida n\xE3o encontrada.");
+    const newScoreA = input.scoreA !== void 0 ? Math.max(0, Number(input.scoreA)) : match.live_score_a ?? 0;
+    const newScoreB = input.scoreB !== void 0 ? Math.max(0, Number(input.scoreB)) : match.live_score_b ?? 0;
+    const newPhase = input.phase || (match.status === "completed" ? "completed" : "live");
+    const newStatus = match.status === "completed" ? "completed" : newPhase === "live" || newScoreA > 0 || newScoreB > 0 ? "in_progress" : match.status;
+    await sql`
+      UPDATE cs_arena.matches
+      SET 
+        live_score_a = ${newScoreA},
+        live_score_b = ${newScoreB},
+        live_phase = ${newPhase},
+        status = ${newStatus},
+        server_ip = COALESCE(${input.serverIp ?? null}, server_ip),
+        server_password = COALESCE(${input.serverPassword ?? null}, server_password)
+      WHERE id = ${matchId};
+    `;
+    await sql`
+      UPDATE cs_arena.match_maps
+      SET score_a = ${newScoreA}, score_b = ${newScoreB}
+      WHERE match_id = ${matchId} AND order_number = 1;
+    `;
+    return {
+      success: true,
+      matchId,
+      scoreA: newScoreA,
+      scoreB: newScoreB,
+      phase: newPhase,
+      status: newStatus
+    };
+  }
+  static async updateServerConfig(matchId, serverIp, serverPassword) {
+    await sql`
+      UPDATE cs_arena.matches
+      SET server_ip = ${serverIp.trim() || null}, server_password = ${serverPassword?.trim() || null}
+      WHERE id = ${matchId};
+    `;
+    return { success: true, serverIp, serverPassword };
+  }
+  static async handleGSIPayload(matchId, payload) {
+    const [match] = await sql`
+      SELECT m.id, m.map_name, m.status, m.tournament_id, t.game_mode
+      FROM cs_arena.matches m
+      JOIN cs_arena.tournaments t ON m.tournament_id = t.id
+      WHERE m.id = ${matchId};
+    `;
+    if (!match)
+      throw new Error("Partida n\xE3o encontrada para GSI.");
+    let scoreA = 0;
+    let scoreB = 0;
+    let phase = "live";
+    let mapFromGSI = null;
+    if (payload.map) {
+      phase = payload.map.phase || "live";
+      mapFromGSI = payload.map.name || null;
+      const ctScore = Number(payload.map.team_ct?.score ?? 0);
+      const tScore = Number(payload.map.team_t?.score ?? 0);
+      scoreA = ctScore;
+      scoreB = tScore;
+    } else if (payload.team1 !== void 0 || payload.team2 !== void 0) {
+      scoreA = Number(payload.team1?.score ?? payload.scoreA ?? 0);
+      scoreB = Number(payload.team2?.score ?? payload.scoreB ?? 0);
+      mapFromGSI = payload.map_name || null;
+    } else if (payload.scoreA !== void 0) {
+      scoreA = Number(payload.scoreA);
+      scoreB = Number(payload.scoreB ?? 0);
+    }
+    if (mapFromGSI && !match.map_name) {
+      await _MatchService.updateMatchMap(matchId, mapFromGSI);
+    }
+    return await _MatchService.updateLiveScore(matchId, {
+      scoreA,
+      scoreB,
+      phase
+    });
+  }
+  static generateGSIConfig(matchId, origin) {
+    return `"CS Arena GSI v1.0"
+{
+ "uri" "${origin}/api/matches/${matchId}/gsi"
+ "timeout" "5.0"
+ "buffer"  "0.1"
+ "throttle" "0.5"
+ "heartbeat" "15.0"
+ "data"
+ {
+   "provider"            "1"
+   "map"                 "1"
+   "round"               "1"
+   "player_id"           "1"
+   "allplayers_id"       "1"
+   "allplayers_match_stats" "1"
+ }
+}`;
   }
   static async submitMatchResult(matchId, input, actor) {
     const { maps, evidenceUrl } = input;
@@ -15967,6 +16067,79 @@ async function handleMatches(req, segments) {
       return jsonResponse({ error: err.message || "Erro ao atualizar mapa da partida" }, 400);
     }
   }
+  if (subAction === "live" && method === "GET") {
+    try {
+      const data = await MatchService.getMatch(matchId);
+      if (!data)
+        return jsonResponse({ error: "Partida n\xE3o encontrada." }, 404);
+      return jsonResponse({
+        matchId,
+        status: data.match.status,
+        mapName: data.match.map_name,
+        liveScoreA: data.match.live_score_a ?? 0,
+        liveScoreB: data.match.live_score_b ?? 0,
+        livePhase: data.match.live_phase ?? "scheduled",
+        serverIp: data.match.server_ip,
+        serverPassword: data.match.server_password,
+        playerAName: data.match.player_a_name || data.match.team_a_name,
+        playerBName: data.match.player_b_name || data.match.team_b_name,
+        playerAAvatar: data.match.player_a_avatar,
+        playerBAvatar: data.match.player_b_avatar
+      });
+    } catch (err) {
+      return jsonResponse({ error: err.message || "Erro ao buscar dados ao vivo" }, 500);
+    }
+  }
+  if (subAction === "live-score" && method === "POST") {
+    const authCheck = await requireAdmin(req);
+    if ("errorResponse" in authCheck)
+      return authCheck.errorResponse;
+    try {
+      const body = await req.json();
+      const result = await MatchService.updateLiveScore(matchId, {
+        scoreA: body.scoreA,
+        scoreB: body.scoreB,
+        phase: body.phase,
+        serverIp: body.serverIp,
+        serverPassword: body.serverPassword
+      });
+      return jsonResponse(result);
+    } catch (err) {
+      return jsonResponse({ error: err.message || "Erro ao atualizar placar ao vivo" }, 400);
+    }
+  }
+  if (subAction === "server" && method === "POST") {
+    const authCheck = await requireAdmin(req);
+    if ("errorResponse" in authCheck)
+      return authCheck.errorResponse;
+    try {
+      const body = await req.json();
+      const result = await MatchService.updateServerConfig(matchId, body.serverIp || "", body.serverPassword || "");
+      return jsonResponse(result);
+    } catch (err) {
+      return jsonResponse({ error: err.message || "Erro ao configurar servidor" }, 400);
+    }
+  }
+  if (subAction === "gsi" && segments[2] === "cfg" || subAction === "gsi-cfg") {
+    const origin = new URL(req.url).origin;
+    const cfg = MatchService.generateGSIConfig(matchId, origin);
+    return new Response(cfg, {
+      status: 200,
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Content-Disposition": `attachment; filename="gamestate_integration_csarena_${matchId.slice(0, 8)}.cfg"`
+      }
+    });
+  }
+  if (subAction === "gsi" && method === "POST") {
+    try {
+      const body = await req.json();
+      const result = await MatchService.handleGSIPayload(matchId, body);
+      return jsonResponse(result);
+    } catch (err) {
+      return jsonResponse({ error: err.message || "Erro ao processar GSI" }, 400);
+    }
+  }
   return jsonResponse({ error: "A\xE7\xE3o n\xE3o reconhecida." }, 404);
 }
 
@@ -16035,6 +16208,13 @@ async function router(req) {
   }
   if (primary === "matches") {
     return handleMatches(req, segments.slice(1));
+  }
+  if (primary === "gsi") {
+    const matchId = url.searchParams.get("matchId") || segments[1];
+    if (matchId) {
+      return handleMatches(req, [matchId, "gsi"]);
+    }
+    return jsonResponse({ ok: true, service: "CS Arena GSI Gateway" });
   }
   if (primary === "users") {
     return handleUsers(req, segments.slice(1));

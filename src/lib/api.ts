@@ -186,6 +186,43 @@ export const api = {
     return result;
   },
 
+  async getLiveMatch(matchId: string) {
+    const res = await fetch(`/api/matches/${matchId}/live`, { headers: getHeaders() });
+    if (!res.ok) throw new Error('Falha ao obter status ao vivo da partida');
+    return res.json();
+  },
+
+  async updateLiveScore(
+    matchId: string,
+    payload: {
+      scoreA?: number;
+      scoreB?: number;
+      phase?: string;
+      serverIp?: string;
+      serverPassword?: string;
+    }
+  ) {
+    const res = await fetch(`/api/matches/${matchId}/live-score`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(payload),
+    });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error || 'Falha ao atualizar placar ao vivo');
+    return result;
+  },
+
+  async updateMatchServer(matchId: string, serverIp: string, serverPassword?: string) {
+    const res = await fetch(`/api/matches/${matchId}/server`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ serverIp, serverPassword }),
+    });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error || 'Falha ao salvar servidor da partida');
+    return result;
+  },
+
   async getRanking(tournamentId: string) {
     const res = await fetch(`/api/tournaments/${tournamentId}/ranking`, { headers: getHeaders() });
     if (!res.ok) throw new Error('Falha ao buscar classificação do torneio');
